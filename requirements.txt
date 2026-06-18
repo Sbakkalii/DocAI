@@ -1,0 +1,53 @@
+# Google AI SDK (optional, only needed when LLM_PROVIDER=gemini)
+google-generativeai==0.3.2
+
+# Document Processing
+PyPDF2==3.0.1
+pymupdf==1.23.9
+python-docx==0.8.11
+pdfplumber==0.9.0
+
+# Data Processing & Analysis
+pandas==2.1.4
+numpy==1.25.2
+matplotlib==3.8.2
+seaborn==0.13.0
+
+# Web Framework & API
+fastapi==0.104.1
+uvicorn==0.24.0
+streamlit==1.28.2
+
+# Vector Search & Embeddings
+chromadb==0.4.17
+sentence-transformers>=3.0.0
+langdetect>=1.0.9
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.1
+aiofiles==23.2.1
+python-multipart==0.0.6
+jinja2==3.1.2
+openai>=1.0.0
+
+# LayoutLMv3 Invoice Processing
+transformers>=4.35.0
+datasets>=2.14.0
+accelerate>=0.24.0
+scikit-learn>=1.3.0
+pytesseract>=0.3.10
+pdf2image>=1.16.3
+Pillow>=10.0.0
+seqeval>=1.2.2
+
+# Supplier matching (C++ backed, 10x faster than pure Python)
+rapidfuzz>=3.0.0
+
+# Visualization
+plotly==5.17.0
+networkx==3.2.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1

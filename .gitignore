@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project runtime
+.cache/
+output/
+logs/
+server.log
+google-cloud-sdk/
+
+# Storage caches (indices, embeddings)
+storage/retrieval/
+!storage/retrieval/.gitkeep
+
+# Node
+node_modules/
+frontend/dist/
+data/documents/invoice_dataset

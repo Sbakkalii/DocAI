@@ -1,0 +1,156 @@
+# Agentic Document Intelligence System Configuration
+system:
+  name: "Agentic Document Intelligence System"
+  version: "1.0.0"
+  description: "Multi-agent AI system for autonomous document processing and analysis"
+
+# LLM Configuration
+llm:
+  provider: "ollama"  # "gemini", "vllm", "ollama", or "openai"
+  max_retries: 3
+  retry_delay: 2
+
+# Google ADK Configuration (only needed when provider is "gemini")
+google_adk:
+  project_id: "your-google-cloud-project"
+  location: "us-central1"
+  api_key_env: "GOOGLE_API_KEY"
+
+# Gemini Model Configuration (used when provider is "gemini")
+gemini:
+  model: "gemini-2.5-flash"
+  temperature: 0.3
+  max_output_tokens: 8192
+  safety_settings:
+    - category: "HARM_CATEGORY_HARASSMENT"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"
+    - category: "HARM_CATEGORY_HATE_SPEECH"
+      threshold: "BLOCK_MEDIUM_AND_ABOVE"
+
+# vLLM Configuration (used when provider is "vllm")
+# Best for GPU machines with custom model loading
+vllm:
+  base_url: "http://localhost:8000/v1"
+  model: "TheBloke/Llama-2-7B-Chat-GGUF"
+  api_key: "not-needed"
+
+# Ollama Configuration (used when provider is "ollama")
+# Best for CPU machines with pre-quantized models
+ollama:
+  base_url: "http://localhost:11434/v1"
+  # Recommended models for document understanding (NER, Q/A, summarization)
+  # Best overall for CPU: Qwen2.5 has excellent instruction-following and reasoning
+  model: "qwen2.5:7b-instruct-q4_K_M"   # 4-bit quantized, ~4.7GB, best doc understanding
+  # Alternative models (uncomment to use):
+  # model: "llama3.1:8b-instruct-q4_K_M"  # Good general purpose, ~4.9GB
+  # model: "llama3.3:70b-instruct-q2_K"   # Best quality if you have enough RAM (~24GB)
+  # model: "phi3:14b-instruct-q4_K_M"     # Microsoft Phi-3, strong reasoning, ~9GB
+  # model: "mistral-nemo:12b-instruct-q4_K_M"  # Mistral NeMo, good all-rounder, ~7.5GB
+  # model: "gemma2:9b-instruct-q4_K_M"    # Google Gemma 2, good quality, ~5.6GB
+  # model: "qwen2.5:14b-instruct-q4_K_M"  # Larger Qwen, better accuracy if RAM allows, ~9GB
+
+# Agent Configuration
+agents:
+  ingestion:
+    name: "DocumentIngestionAgent"
+    description: "Processes and extracts content from PDF documents"
+    max_concurrent_documents: 5
+    supported_formats: ["pdf", "docx", "txt", "jpg", "jpeg", "png", "tiff"]
+    chunk_size: 1000
+    chunk_overlap: 200
+    output_dir: "output/ingestion"
+    
+  analysis:
+    name: "DocumentAnalysisAgent"
+    description: "Performs deep content analysis and entity extraction"
+    analysis_depth: "comprehensive"
+    confidence_threshold: 0.7
+    entity_types: ["PERSON", "ORGANIZATION", "DATE", "LOCATION", "CONCEPT"]
+    output_dir: "output/analysis"
+    
+  reasoning:
+    name: "ReasoningAgent"
+    description: "Synthesizes information and draws insights across documents"
+    reasoning_mode: "comprehensive"
+    inference_depth: 3
+    confidence_threshold: 0.6
+    max_reasoning_chains: 10
+    output_dir: "output/reasoning"
+    
+  response:
+    name: "ResponseAgent"
+    description: "Generates structured responses with citations"
+    response_mode: "comprehensive"
+    output_formats: ["json", "markdown", "summary"]
+    max_response_length: 2000
+    include_citations: true
+    confidence_threshold: 0.5
+    output_dir: "output/responses"
+
+# Pipeline Configuration
+pipeline:
+  max_execution_time: 3600
+  save_intermediate_results: true
+  parallel_processing: false
+
+# Vector Database Configuration
+vector_db:
+  provider: "chromadb"
+  collection_name: "document_intelligence"
+  embedding_model: "intfloat/e5-small-v2"
+  chunk_size: 1000
+  chunk_overlap: 200
+
+# Output Configuration
+output:
+  reports_dir: "output/reports"
+  logs_dir: "logs"
+  citations_format: "apa"
+  relationship_maps: true
+
+# Invoice Benchmark Configuration
+invoice_benchmark:
+  dataset_dir: "data/documents/invoice_dataset"
+  output_dir: "output/benchmark"
+  few_shot_k: 3
+  rag_k_rules: 5               # Number of RAG field rules to retrieve
+  rag_k_templates: 2           # Number of RAG template hints to retrieve
+  test_count: 100
+  # Models used as the few-shot example store (8 models = 800 invoices)
+  store_models:
+    - "invoice_dataset_model_1"
+    - "invoice_dataset_model_2"
+    - "invoice_dataset_model_3"
+    - "invoice_dataset_model_4"
+    - "invoice_dataset_model_5"
+    - "invoice_dataset_model_6"
+    - "invoice_dataset_model_7"
+    - "invoice_dataset_model_8"
+  # Model used for testing (1 model = 100 invoices)
+  test_models:
+    - "invoice_dataset_model_9"
+  max_store_per_model: 50
+  target_fields:
+    - "NUMBER"
+    - "SUPPLIER"
+    - "ADDRESS"
+    - "DATE"
+    - "TOTAL"
+    - "LINE/DESCRIPTION"
+    - "LINE/QUANTITY"
+    - "LINE/UOM"
+
+# Processing Configuration
+processing:
+  batch_size: 10
+  max_file_size_mb: 100
+  timeout_seconds: 300
+  parallel_processing: true
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/system.log"
+  max_size_mb: 10
+  backup_count: 5

@@ -1,0 +1,13 @@
+# ERP CSV field mapping — maps pipeline field names to your ERP column headers.
+# Edit this file to match your ERP system's import format.
+NUMBER: "InvoiceNumber"
+SUPPLIER: "SupplierName"
+ADDRESS: "SupplierAddress"
+INVOICE_DATE: "InvoiceDate"
+TOTAL: "NetAmount"
+TOTAL_AMOUNT: "GrossAmount"
+# Uncomment and customize for your ERP:
+# LINE/DESCRIPTION: "LineDescription"
+# LINE/QUANTITY: "LineQuantity"
+# LINE/UNIT_PRICE: "LineUnitPrice"
+# LINE/SUB_TOTAL: "LineSubTotal"
