@@ -1644,7 +1644,7 @@ export function PipelineView({
           )}
           {STEP_GROUPS.slice(1).map((group) => {
             const groupSteps = group.steps.filter(s => enabledSet.has(s) && s !== 'review')
-            if (groupSteps.length === 0 && !(group.label === 'Extraction & Validation' && enabledSet.has('review'))) return null
+            if (groupSteps.length === 0) return null
             return (
               <div key={group.label}>
                 <StepHeader label={group.label} />
@@ -1661,20 +1661,6 @@ export function PipelineView({
                       runStep={runStep} stopPipeline={stopPipeline}
                     />
                   ))}
-                  {group.label === 'Extraction & Validation' && enabledSet.has('review') && (
-                    <div
-                      onClick={() => onSelectStep(selectedStep === 'review' ? null : 'review')}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer shrink-0 group ${
-                        selectedStep === 'review'
-                          ? 'border-accent-violet/40 bg-accent-violet/12 ring-1 ring-accent-violet/30 border-l-accent-violet border-l-2'
-                          : 'border-border/40 bg-bg-surface/60 hover:bg-bg-elevated/60 border-l-transparent border-l-2'
-                      }`}>
-                      <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                        <HugeiconsIcon icon={PencilIcon} className="size-3.5 text-accent-violet/70" />
-                      </div>
-                      <span className="text-xs font-medium truncate flex-1 text-text-muted">Human Review</span>
-                    </div>
-                  )}
                   {group.label === 'Evaluation' && (resultsData || steps['end_to_end_vlm']?.status === 'completed' || steps['llm_extraction']?.status === 'completed') && (
                     <div
                       onClick={() => onSelectStep(selectedStep === '__results__' ? null : '__results__')}
@@ -1891,59 +1877,61 @@ export function PipelineView({
                         onFieldFocus={focusField}
                         onLocationHover={handleLocationHover}
                       />
-                      <div className="shrink-0 border-t border-border bg-bg-surface px-4 py-2.5">
-                        <div className="space-y-1">
-                          {correctionFieldKeys.map(fk => {
-                            const rawVal = firstPageFields[fk]
-                            const isEditing = fk in correctionEdits
-                            const displayValue = isEditing ? correctionEdits[fk] : fmtExtractedVal(rawVal)
-                            const editValue = isEditing ? correctionEdits[fk] : fmtExtractedVal(rawVal)
-                            return (
-                              <div key={fk} className="flex items-center gap-2 group">
-                                <span className="text-xs text-text-muted w-28 shrink-0 truncate uppercase">{fk.replace(/_/g, ' ')}</span>
-                                <div className="flex-1 min-w-0">
-                                  {isEditing ? (
-                                    <input
-                                      value={editValue}
-                                      onChange={e => setCorrectionEdits(prev => ({ ...prev, [fk]: e.target.value }))}
-                                      className="w-full text-xs bg-bg-elevated border border-border rounded px-2 py-1 outline-none focus:border-accent-violet transition-colors"
-                                    />
-                                  ) : (
-                                    <span className="text-xs text-text-primary font-mono">{displayValue}</span>
-                                  )}
-                                </div>
-                                <Button variant="ghost" size="icon-sm"
-                                  onClick={() => {
-                                    if (isEditing) {
-                                      setCorrectionEdits(prev => { const next = { ...prev }; delete next[fk]; return next })
-                                    } else {
-                                      setCorrectionEdits(prev => ({ ...prev, [fk]: fmtExtractedVal(rawVal) }))
-                                    }
-                                  }}
-                                  className="text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 shrink-0"
-                                  title={isEditing ? 'Cancel edit' : 'Edit field'}>
-                                  {isEditing ? <HugeiconsIcon icon={Cancel01Icon} className="size-3" /> : <HugeiconsIcon icon={PencilIcon} className="size-3" />}
-                                </Button>
-                              </div>
-                            )
-                          })}
-                        </div>
-                        {Object.keys(correctionEdits).length > 0 && (
-                          <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
-                            <Button variant="default" size="sm" onClick={handleCorrectionSave}
-                              disabled={correctionStatus === 'saving'}
-                              loading={correctionStatus === 'saving'}>
-                              Save Corrections
-                            </Button>
-                            {correctionStatus === 'saved' && <span className="text-xs text-accent-green">{correctionMsg}</span>}
-                            {correctionStatus === 'error' && <span className="text-xs text-accent-coral">{correctionMsg}</span>}
-                          </div>
-                        )}
-                      </div>
                     </TabsContent>
 
                     <TabsContent value="validation" className="min-h-0 flex-1 overflow-auto mt-2">
                       <div className="space-y-3">
+                        {/* Human Review — Correct Extracted Fields */}
+                        <SectionCard title="Human Review — Correct Extracted Fields">
+                          <div className="px-4 py-2">
+                            <div className="space-y-1">
+                              {correctionFieldKeys.map(fk => {
+                                const rawVal = firstPageFields[fk]
+                                const isEditing = fk in correctionEdits
+                                const displayValue = isEditing ? correctionEdits[fk] : fmtExtractedVal(rawVal)
+                                return (
+                                  <div key={fk} className="flex items-center gap-2 group">
+                                    <span className="text-xs text-text-muted w-28 shrink-0 truncate uppercase">{fk.replace(/_/g, ' ')}</span>
+                                    <div className="flex-1 min-w-0">
+                                      {isEditing ? (
+                                        <input
+                                          value={displayValue}
+                                          onChange={e => setCorrectionEdits(prev => ({ ...prev, [fk]: e.target.value }))}
+                                          className="w-full text-xs bg-bg-elevated border border-border rounded px-2 py-1 outline-none focus:border-accent-violet transition-colors"
+                                        />
+                                      ) : (
+                                        <span className="text-xs text-text-primary font-mono">{displayValue}</span>
+                                      )}
+                                    </div>
+                                    <Button variant="ghost" size="icon-sm"
+                                      onClick={() => {
+                                        if (isEditing) {
+                                          setCorrectionEdits(prev => { const next = { ...prev }; delete next[fk]; return next })
+                                        } else {
+                                          setCorrectionEdits(prev => ({ ...prev, [fk]: fmtExtractedVal(rawVal) }))
+                                        }
+                                      }}
+                                      className="text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 shrink-0"
+                                      title={isEditing ? 'Cancel edit' : 'Edit field'}>
+                                      {isEditing ? <HugeiconsIcon icon={Cancel01Icon} className="size-3" /> : <HugeiconsIcon icon={PencilIcon} className="size-3" />}
+                                    </Button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            {Object.keys(correctionEdits).length > 0 && (
+                              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
+                                <Button variant="default" size="sm" onClick={handleCorrectionSave}
+                                  disabled={correctionStatus === 'saving'}
+                                  loading={correctionStatus === 'saving'}>
+                                  Save Corrections
+                                </Button>
+                                {correctionStatus === 'saved' && <span className="text-xs text-accent-green">{correctionMsg}</span>}
+                                {correctionStatus === 'error' && <span className="text-xs text-accent-coral">{correctionMsg}</span>}
+                              </div>
+                            )}
+                          </div>
+                        </SectionCard>
                         {/* HITL Routing: fields needing human review */}
                         {r.pages.some(p => p.field_confidence) && r.pages.map(p => {
                           const fc = p.field_confidence
@@ -2138,147 +2126,6 @@ export function PipelineView({
                       </div>
                     </TabsContent>
                   </Tabs>
-                )
-              }
-              if (sn === 'review') {
-                if (!resultsData) {
-                  return (
-                    <div className="flex flex-col items-center justify-center h-full text-sm text-text-muted gap-2">
-                      <HugeiconsIcon icon={InformationCircleIcon} className="size-8 text-border" />
-                      <span>Run the pipeline first to review extracted fields</span>
-                    </div>
-                  )
-                }
-                const r = resultsData
-                const allFields = r.pages.reduce((acc, p) => ({
-                  ...acc,
-                  ...(p.extracted_fields as Record<string, unknown> ?? {})
-                }), {} as Record<string, unknown>)
-                const reviewFieldKeys = Object.keys(allFields).filter(k => !k.startsWith('LINE/'))
-                const lineFieldsPerPage: Array<{ page: number; fields: Array<{ key: string; val: unknown }> }> = []
-                for (const p of r.pages) {
-                  const ef = p.extracted_fields as Record<string, unknown> ?? {}
-                  const lineKeys = Object.keys(ef).filter(k => k.startsWith('LINE/'))
-                  if (lineKeys.length > 0) {
-                    lineFieldsPerPage.push({
-                      page: p.page_number,
-                      fields: lineKeys.map(k => ({ key: k, val: ef[k] })),
-                    })
-                  }
-                }
-                return (
-                  <div className="flex flex-col h-full">
-                    <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3 shrink-0">Human Review — Correct Extracted Fields</div>
-                    <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
-                      {reviewFieldKeys.map(fk => {
-                        const isEditing = fk in correctionEdits
-                        const displayValue = isEditing ? correctionEdits[fk] : fmtExtractedVal(allFields[fk])
-                        return (
-                          <div key={fk} className="flex items-start gap-3 px-5 py-3 hover:bg-bg-elevated/30 transition-colors group rounded-lg border border-border/50">
-                            <div className="w-32 shrink-0">
-                              <span className="text-[13px] font-medium text-text-muted uppercase tracking-wider">{fk.replace(/_/g, ' ')}</span>
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              {isEditing ? (
-                                <textarea
-                                  className="w-full text-sm text-text-primary font-mono bg-bg-elevated px-3 py-1.5 rounded-lg border border-border focus:border-accent-violet focus:ring-1 focus:ring-accent-violet/30 outline-none resize-y min-h-[2.5rem]"
-                                  style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                                  value={displayValue}
-                                  onChange={e => setCorrectionEdits(prev => ({ ...prev, [fk]: e.target.value }))}
-                                  rows={2}
-                                />
-                              ) : (
-                                <div className="text-sm text-text-primary font-mono bg-bg-elevated/50 px-3 py-1.5 rounded-lg border border-border/50">
-                                  {fmtExtractedVal(allFields[fk])}
-                                </div>
-                              )}
-                            </div>
-                            <Button variant="ghost" size="icon-sm"
-                              onClick={() => {
-                                if (isEditing) {
-                                  setCorrectionEdits(prev => { const next = { ...prev }; delete next[fk]; return next })
-                                } else {
-                                  const raw = allFields[fk]
-                                  setCorrectionEdits(prev => ({ ...prev, [fk]: fmtExtractedVal(raw) }))
-                                }
-                              }}
-                              className="text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 shrink-0"
-                              title={isEditing ? 'Cancel edit' : 'Edit field'}>
-                              {isEditing ? <HugeiconsIcon icon={Cancel01Icon} className="size-3.5" /> : <HugeiconsIcon icon={PencilIcon} className="size-3.5" />}
-                            </Button>
-                          </div>
-                        )
-                      })}
-                      {lineFieldsPerPage.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-border">
-                          <div className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Line Item Fields</div>
-                          <div className="space-y-3">
-                            {lineFieldsPerPage.map(({ page, fields }) => (
-                              <div key={`line-p${page}`} className="rounded-lg border border-border/50 overflow-hidden">
-                                <div className="bg-bg-elevated/30 px-4 py-1.5 border-b border-border">
-                                  <span className="text-xs font-semibold text-text-muted">Page {page}</span>
-                                </div>
-                                <div className="divide-y divide-border/40">
-                                  {fields.map(({ key, val }) => {
-                                    const fk = `p${page}__${key}`
-                                    const isEditing = fk in correctionEdits
-                                    const displayValue = isEditing ? correctionEdits[fk] : fmtExtractedVal(val)
-                                    return (
-                                      <div key={fk} className="flex items-start gap-3 px-4 py-2.5 hover:bg-bg-elevated/20 transition-colors group">
-                                        <div className="w-32 shrink-0">
-                                          <span className="text-xs font-medium text-text-muted uppercase tracking-wider">{key.replace(/_/g, ' ')}</span>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          {isEditing ? (
-                                            <textarea
-                                              className="w-full text-xs text-text-primary font-mono bg-bg-elevated px-2.5 py-1.5 rounded-md border border-border focus:border-accent-violet focus:ring-1 focus:ring-accent-violet/30 outline-none resize-y min-h-[2rem]"
-                                              style={{ fontFamily: "'JetBrains Mono', monospace" }}
-                                              value={displayValue}
-                                              onChange={e => setCorrectionEdits(prev => ({ ...prev, [fk]: e.target.value }))}
-                                              rows={1}
-                                            />
-                                          ) : (
-                                            <div className="text-xs text-text-primary font-mono bg-bg-elevated/50 px-2.5 py-1.5 rounded-md border border-border/50">
-                                              {fmtExtractedVal(val)}
-                                            </div>
-                                          )}
-                                        </div>
-                                        <Button variant="ghost" size="icon-sm"
-                                          onClick={() => {
-                                            if (isEditing) {
-                                              setCorrectionEdits(prev => { const next = { ...prev }; delete next[fk]; return next })
-                                            } else {
-                                              const raw = val
-                                              setCorrectionEdits(prev => ({ ...prev, [fk]: fmtExtractedVal(raw) }))
-                                            }
-                                          }}
-                                          className="text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 shrink-0"
-                                          title={isEditing ? 'Cancel edit' : 'Edit field'}>
-                                          {isEditing ? <HugeiconsIcon icon={Cancel01Icon} className="size-3" /> : <HugeiconsIcon icon={PencilIcon} className="size-3" />}
-                                        </Button>
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {Object.keys(correctionEdits).length > 0 && (
-                      <div className="shrink-0 border-t border-border bg-bg-surface px-4 py-3 flex items-center gap-3">
-                        <Button variant="default" size="sm" onClick={handleCorrectionSave}
-                          disabled={correctionStatus === 'saving'}
-                          loading={correctionStatus === 'saving'}
-                          className="bg-accent-violet hover:bg-accent-violet/80 text-white">
-                          {correctionStatus === 'saving' ? <><HugeiconsIcon icon={Loading01Icon} className="size-3 animate-spin" /> Saving...</> : 'Save Corrections'}
-                        </Button>
-                        {correctionStatus === 'saved' && <span className="text-xs text-accent-green">{correctionMsg}</span>}
-                        {correctionStatus === 'error' && <span className="text-xs text-accent-coral">{correctionMsg}</span>}
-                      </div>
-                    )}
-                  </div>
                 )
               }
               if (!sn) {

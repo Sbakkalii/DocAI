@@ -1,20 +1,16 @@
 """
 Unified Document Classifier Step.
 
-Replaces both page_classification and the old document_classifier.
+Runs BEFORE extraction to route the pipeline:
+  - Per-page: keyword scoring or lightweight VLM prompt → page_type
+  - Document-level: majority vote + keyword scoring → ctx.metadata["document_type"]
+  - Determines which Pydantic schema is injected into the VLM extraction step
 
-Per-page:
-  - Sets page.page_type and page.page_type_confidence via keyword scoring
-  - Types: invoice, contract, report, correspondence, form, other
-
-Document-level:
-  - Aggregates per-page results (majority vote) combined with extended
-    keyword search across all pages to determine overall document type
-  - Types: invoice, contract, purchase_order, delivery_note,
-    bank_statement, id_card, unknown
-  - Sets ctx.metadata["document_type"] for downstream routing
+Types: invoice, contract, purchase_order, delivery_note,
+       bank_statement, id_card, unknown
 """
 
+import base64
 import logging
 from collections import Counter
 from typing import Optional
@@ -24,7 +20,6 @@ from pipeline.base import BaseStep, PipelineContext, PageResult
 
 logger = logging.getLogger("pipeline.document_classifier")
 
-# Per-page type signatures (replaces old page_classification.py)
 PAGE_TYPE_SIGNATURES = {
     "invoice": {
         "weight": 2.0,
@@ -68,7 +63,6 @@ PAGE_TYPE_SIGNATURES = {
     },
 }
 
-# Extended document-level type signatures (for routing)
 DOC_TYPE_SIGNATURES = {
     "invoice": {
         "weight": 2.0,
@@ -133,7 +127,7 @@ DOC_TYPE_SIGNATURES = {
 
 class DocumentTypeClassifierStep(BaseStep):
     name = "document_classifier"
-    description = "Classify each page type and overall document type using keyword scoring"
+    description = "Classify document type for schema routing (runs before extraction)"
 
     def __init__(self, config: PipelineConfig):
         super().__init__(config)
@@ -149,12 +143,11 @@ class DocumentTypeClassifierStep(BaseStep):
         if page.ocr_result and page.ocr_result.words:
             return " ".join(page.ocr_result.words)
         if page.extracted_fields:
-            return " ".join(page.extracted_fields.values())
+            return " ".join(str(v) for v in page.extracted_fields.values() if v)
         return page.metadata.get("page_text", "")
 
     @staticmethod
     def _classify_page(text: str, signatures: dict, threshold: float) -> tuple:
-        """Classify a single page using keyword scoring. Returns (type, confidence)."""
         if not text or len(text.strip()) < 5:
             return "other", 0.5
 
@@ -187,7 +180,6 @@ class DocumentTypeClassifierStep(BaseStep):
 
     @staticmethod
     def _classify_document(text: str, signatures: dict, threshold: float) -> tuple:
-        """Classify the whole document text. Returns (type, confidence)."""
         if not text or len(text.strip()) < 10:
             return "unknown", 0.0
 
@@ -221,12 +213,6 @@ class DocumentTypeClassifierStep(BaseStep):
     @staticmethod
     def _resolve_document_type(page_types: list, doc_text: str,
                                 signatures: dict, threshold: float) -> tuple:
-        """Combine per-page majority vote with document-level keyword scoring.
-
-        1. Count per-page types (excluding "other").
-        2. If a clear majority exists (>= 60% of classified pages), use it.
-        3. Otherwise fall back to document-level keyword scoring.
-        """
         counts: Counter = Counter()
         for pt in page_types:
             if pt not in ("other", "unknown", None):
@@ -242,7 +228,6 @@ class DocumentTypeClassifierStep(BaseStep):
                 doc_type = top_type
                 confidence = round(top_ratio, 4)
 
-        # Fall back to combined text keyword scoring
         if doc_type == "unknown" and doc_text.strip():
             doc_type, confidence = DocumentTypeClassifierStep._classify_document(
                 doc_text, signatures, threshold
@@ -250,28 +235,90 @@ class DocumentTypeClassifierStep(BaseStep):
 
         return doc_type, confidence
 
+    async def _vlm_classify(self, image_path: str) -> tuple:
+        """Lightweight VLM classification for image-only pages (one-word answer)."""
+        try:
+            import ollama
+            host = (
+                self.config.end_to_end_vlm.ollama_host
+                if self.config.end_to_end_vlm.enabled
+                else self.config.vision_ocr.ollama_host
+            )
+            client = ollama.AsyncClient(host=host)
+            model = self.config.end_to_end_vlm.model if self.config.end_to_end_vlm.enabled else "gemma3:4b"
+
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+            response = await client.chat(
+                model=model,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are a document classifier. Look at this image and classify "
+                        "the document type. Answer with EXACTLY ONE word from this list: "
+                        "invoice, contract, purchase_order, delivery_note, bank_statement, id_card. "
+                        "Answer with only the category name, nothing else."
+                    )},
+                    {"role": "user", "content": "Classify this document.", "images": [img_b64]},
+                ],
+                options={"temperature": 0.0, "num_predict": 10},
+            )
+
+            raw = response.get("message", {}).get("content", "").strip().lower()
+            valid_types = {"invoice", "contract", "purchase_order", "delivery_note", "bank_statement", "id_card"}
+            for dt in valid_types:
+                if dt in raw:
+                    return dt, 0.9
+            return "unknown", 0.3
+        except Exception as e:
+            self.logger.warning(f"VLM classification failed: {e}")
+            return "unknown", 0.0
+
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
         page_types: list[str] = []
         combined_text_parts: list[str] = []
+        has_text = False
 
         for page in ctx.pages:
             text = self._get_text(page)
-            combined_text_parts.append(text)
 
-            # Per-page classification (same as old page_classification)
+            if not text.strip() and page.metadata.get("image_path"):
+                vlm_type, vlm_conf = await self._vlm_classify(page.metadata["image_path"])
+                if vlm_type != "unknown":
+                    page.page_type = vlm_type
+                    page.page_type_confidence = vlm_conf
+                    page_types.append(vlm_type)
+                    combined_text_parts.append(vlm_type)
+                    has_text = True
+                    self.logger.debug(
+                        f"Page {page.page_number}: VLM classified as '{vlm_type}' ({vlm_conf:.2f})"
+                    )
+                    continue
+
+            if text.strip():
+                has_text = True
+
+            combined_text_parts.append(text)
             pt, pc = self._classify_page(text, PAGE_TYPE_SIGNATURES, self.threshold)
             page.page_type = pt
             page.page_type_confidence = pc
             page_types.append(pt)
-
-            self.logger.debug(
-                f"Page {page.page_number}: {pt} ({pc:.4f})"
-            )
+            self.logger.debug(f"Page {page.page_number}: {pt} ({pc:.4f})")
 
         combined_text = "\n".join(combined_text_parts)
-        doc_type, confidence = self._resolve_document_type(
-            page_types, combined_text, DOC_TYPE_SIGNATURES, self.threshold
-        )
+
+        if has_text:
+            doc_type, confidence = self._resolve_document_type(
+                page_types, combined_text, DOC_TYPE_SIGNATURES, self.threshold
+            )
+        else:
+            doc_type = "unknown"
+            confidence = 0.0
+            if page_types:
+                counts = Counter(t for t in page_types if t != "other")
+                if counts:
+                    doc_type = counts.most_common(1)[0][0]
+                    confidence = 0.8
 
         ctx.metadata["document_type"] = doc_type
         ctx.metadata["document_type_confidence"] = confidence

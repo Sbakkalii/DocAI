@@ -103,6 +103,39 @@ def cache_stats():
     return {"summary": cm.get_summary(), "stats": cm.stats}
 
 
+@app.post("/api/cache/clear")
+def cache_clear():
+    """Clear all caches (LLM, OCR, embedding, RAG)."""
+    from utils.cache_manager import get_shared_cache
+    cm = get_shared_cache()
+    cm.clear()
+    return {"status": "cleared"}
+
+
+@app.get("/api/ollama/models")
+async def list_ollama_models():
+    """List all available Ollama models with metadata."""
+    try:
+        import ollama
+        client = ollama.Client(host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
+        response = client.list()
+        models = []
+        for m in response.get("models", []):
+            models.append({
+                "name": m.get("name", ""),
+                "size": m.get("size", 0),
+                "size_gb": round(m.get("size", 0) / (1024**3), 2),
+                "modified": m.get("modified_at", ""),
+                "family": m.get("details", {}).get("family", ""),
+                "parameter_size": m.get("details", {}).get("parameter_size", ""),
+                "quantization": m.get("details", {}).get("quantization_level", ""),
+            })
+        return {"models": models}
+    except Exception as e:
+        logger.error(f"Failed to list Ollama models: {e}")
+        return {"models": [], "error": str(e)}
+
+
 @app.on_event("shutdown")
 def shutdown_cache():
     from utils.cache_manager import get_shared_cache
@@ -804,13 +837,16 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
     except AttributeError:
         model_name = "qwen2.5:7b-instruct-q4_K_M"
 
+    if body.get("model"):
+        model_name = body["model"]
+
     custom_prompt = body.get("system_prompt", "").strip()
 
     system_prompt = custom_prompt if custom_prompt else "You are a precise document QA assistant. Answer using ONLY the extracted fields and OCR text provided. Always cite FIELD NAMES in ALL CAPS in parentheses after every value. Never fabricate data."
 
     try:
         from ollama import AsyncClient
-        client = AsyncClient(host="http://localhost:11434")
+        client = AsyncClient(host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
         messages_list: list[dict] = []
         messages_list.append({"role": "system", "content": system_prompt})
         messages_list.append({

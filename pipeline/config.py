@@ -98,6 +98,10 @@ class EndToEndVLMConfig(BaseModel):
     model: str = "gemma3:4b"
     target_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
     ollama_host: str = "http://localhost:11434"
+    max_retries: int = 2
+    stream: bool = False
+    max_concurrency: int = 2
+    cache_enabled: bool = True
 
 
 class EmbeddingConfig(BaseModel):
@@ -144,22 +148,17 @@ class LLMExtractionConfig(BaseModel):
 
 
 AVAILABLE_MODELS: List[str] = [
-    "qwen2.5:3b",
-    "qwen2.5:7b",
-    "qwen2.5:14b",
-    "llama3.2:3b",
-    "llama3.1:8b",
-    "mistral:7b",
-    "deepseek-r1:8b",
-    "phi4:14b",
-    "command-r7b:7b",
+    "qwen2.5:7b-instruct-q4_K_M",
+    "qwen2.5-coder:14b",
+    "deepseek-coder-v2:16b",
+    "llama3.2:3b-instruct-q4_K_M",
 ]
 
 AVAILABLE_VLM_MODELS: List[str] = [
     "gemma3:4b",
     "qwen2.5vl:3b",
-    "deepseek-ocr:latest"
-    ]
+    "deepseek-ocr:latest",
+]
 
 
 class ValidationConfig(BaseModel):
@@ -268,18 +267,18 @@ STEP_ORDER = [
     "document_graph",
     "table_extraction",
     "end_to_end_vlm",
-    "document_classifier",
     "embedding",
     "retrieval",
     "rag",
     "llm_extraction",
+    "document_classifier",
+    "vendor_lookup",
     "validation",
     "confidence_scoring",
-    "review",
-    "export",
-    "vendor_lookup",
     "anomaly",
     "multi_task",
+    "export",
+    "review",
     "evaluation",
     "cross_page",
     "knowledge_graph",
@@ -387,7 +386,7 @@ class PipelineConfig(BaseModel):
             rag=RAGConfig(enabled=False),
             llm_extraction=LLMExtractionConfig(enabled=False),
             validation=ValidationConfig(enabled=True),
-            confidence=ConfidenceConfig(enabled=True),
+            confidence=ConfidenceConfig(enabled=False),
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
             evaluation=EvaluationConfig(enabled=True),

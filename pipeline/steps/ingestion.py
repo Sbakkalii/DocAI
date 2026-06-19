@@ -2,6 +2,7 @@
 Step 1: Document Ingestion
 
 Splits documents into pages, detects format, generates hashes.
+Renders PDF pages as high-quality images (300 DPI) for VLM processing.
 Always enabled (foundation for all other steps).
 """
 
@@ -33,16 +34,14 @@ class IngestionStep(BaseStep):
 
         ctx.pages.clear()
 
-        # Handle single file
         if input_path.is_file():
-            pages = await self._process_file(input_path)
+            pages = await self._process_file(input_path, ctx.session_id)
             ctx.pages.extend(pages)
 
-        # Handle directory
         elif input_path.is_dir():
             for file_path in sorted(input_path.iterdir()):
                 if file_path.is_file() and file_path.suffix.lower().lstrip(".") in self.supported_formats:
-                    pages = await self._process_file(file_path)
+                    pages = await self._process_file(file_path, ctx.session_id)
                     ctx.pages.extend(pages)
 
         ctx.document_type = self._detect_document_type(ctx.pages)
@@ -52,31 +51,39 @@ class IngestionStep(BaseStep):
         self.logger.info(f"Ingested {len(ctx.pages)} pages from {ctx.input_path}")
         return ctx
 
-    async def _process_file(self, file_path: Path) -> list:
-        """Process a single file into pages"""
+    async def _process_file(self, file_path: Path, session_id: str) -> list:
         ext = file_path.suffix.lower()
         content_hash = self._compute_hash(file_path)
 
         if ext == ".pdf":
-            return await self._process_pdf(file_path, content_hash)
+            return await self._process_pdf(file_path, content_hash, session_id)
         elif ext in (".jpg", ".jpeg", ".png", ".tiff"):
-            return await self._process_image(file_path, content_hash)
+            return await self._process_image(file_path, content_hash, session_id)
         elif ext in (".docx", ".txt"):
             return await self._process_text(file_path, content_hash)
         else:
             self.logger.warning(f"Unsupported format: {ext}")
             return []
 
-    async def _process_pdf(self, file_path: Path, content_hash: str) -> list:
-        """Split PDF into pages"""
+    async def _process_pdf(self, file_path: Path, content_hash: str, session_id: str) -> list:
         pages = []
         try:
-            import fitz  # PyMuPDF
+            import fitz
             doc = fitz.open(str(file_path))
+            img_dir = Path("output/pipeline") / session_id / "images"
+            img_dir.mkdir(parents=True, exist_ok=True)
+
             for i, page in enumerate(doc):
                 if i >= self.max_pages:
                     break
                 page_text = page.get_text()
+
+                mat = fitz.Matrix(300 / 72, 300 / 72)
+                pix = page.get_pixmap(matrix=mat)
+                img_path = img_dir / f"page_{i + 1}.png"
+                pix.save(str(img_path))
+                self._optimize_image(str(img_path))
+
                 pages.append(PageResult(
                     page_number=i + 1,
                     metadata={
@@ -84,6 +91,7 @@ class IngestionStep(BaseStep):
                         "content_hash": f"{content_hash}_page_{i}",
                         "page_text": page_text[:500],
                         "page_count": len(doc),
+                        "image_path": str(img_path),
                     },
                 ))
             doc.close()
@@ -95,21 +103,27 @@ class IngestionStep(BaseStep):
             ))
         return pages
 
-    async def _process_image(self, file_path: Path, content_hash: str) -> list:
-        """Image is a single page"""
+    async def _process_image(self, file_path: Path, content_hash: str, session_id: str) -> list:
         orig = self.config.original_filename if hasattr(self.config, "original_filename") else None
+
+        img_dir = Path("output/pipeline") / session_id / "images"
+        img_dir.mkdir(parents=True, exist_ok=True)
+        optimized_path = img_dir / f"optimized_{file_path.name}"
+        import shutil
+        shutil.copy2(str(file_path), str(optimized_path))
+        self._optimize_image(str(optimized_path))
+
         return [PageResult(
             page_number=1,
             metadata={
                 "source_file": str(file_path),
                 "content_hash": content_hash,
-                "image_path": str(file_path),
+                "image_path": str(optimized_path),
                 "original_filename": orig,
             },
         )]
 
     async def _process_text(self, file_path: Path, content_hash: str) -> list:
-        """Text document, split into chunks if needed"""
         content = file_path.read_text()
         pages = []
         chunk_size = self.config.ingestion.chunk_size
@@ -128,7 +142,6 @@ class IngestionStep(BaseStep):
         return pages
 
     def _compute_hash(self, file_path: Path) -> str:
-        """Compute content hash for a file"""
         hasher = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(8192), b""):
@@ -136,10 +149,26 @@ class IngestionStep(BaseStep):
         return hasher.hexdigest()
 
     def _detect_document_type(self, pages: list) -> str:
-        """Simple heuristic for document type"""
         if len(pages) == 1:
             return "single_page"
         elif len(pages) <= 5:
             return "short_document"
         else:
             return "long_document"
+
+    @staticmethod
+    def _optimize_image(image_path: str, max_longest_side: int = 2048):
+        try:
+            from PIL import Image
+            img = Image.open(image_path)
+            w, h = img.size
+            longest = max(w, h)
+            if longest > max_longest_side:
+                ratio = max_longest_side / longest
+                new_w, new_h = int(w * ratio), int(h * ratio)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+                img.save(image_path, quality=95)
+        except ImportError:
+            pass
+        except Exception:
+            pass

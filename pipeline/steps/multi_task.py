@@ -197,6 +197,24 @@ Return ONLY JSON: {{ "scores": [...] }}"""
     def _gather_text(self, ctx: PipelineContext) -> str:
         parts = []
         for page in ctx.pages:
+            if page.extracted_fields:
+                field_lines = []
+                for k, v in page.extracted_fields.items():
+                    if v is None or v == "null":
+                        continue
+                    if k == "line_items" and isinstance(v, list):
+                        for i, item in enumerate(v):
+                            if isinstance(item, dict):
+                                desc = item.get("description", "")
+                                qty = item.get("quantity", "")
+                                price = item.get("unit_price", "")
+                                sub = item.get("sub_total", "")
+                                field_lines.append(f"  Line {i+1}: {desc} x{qty} @{price} = {sub}")
+                    else:
+                        field_lines.append(f"  {k}: {v}")
+                if field_lines:
+                    parts.append(f"[Page {page.page_number}]\n" + "\n".join(field_lines))
+                    continue
             ocr = page.metadata.get("hybrid_text") or page.metadata.get("vlm_text")
             if not ocr and page.ocr_result:
                 ocr = page.ocr_result.to_text()

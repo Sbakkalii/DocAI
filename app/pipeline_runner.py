@@ -20,26 +20,26 @@ Prereq = Union[str, tuple[str, ...]]
 # Prerequisites for each step (step can run when all prereqs are met)
 STEP_PREREQS: Dict[str, list[Prereq]] = {
     "ingestion": [],
+    "document_classifier": [("end_to_end_vlm", "llm_extraction")],
     "ocr": ["ingestion"],
     "vision_ocr": ["ingestion"],
     "hybrid_ocr": ["ingestion"],
     "document_graph": ["ingestion"],
     "end_to_end_vlm": ["ingestion"],
-    "document_classifier": [("end_to_end_vlm", "llm_extraction")],
     "embedding": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
     "retrieval": ["embedding"],
     "rag": ["embedding"],
     "llm_extraction": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
-    "validation": [("end_to_end_vlm", "llm_extraction")],
+    "vendor_lookup": [("end_to_end_vlm", "llm_extraction")],
+    "validation": [("end_to_end_vlm", "llm_extraction", "vendor_lookup")],
     "confidence_scoring": ["validation"],
-    "export": ["confidence_scoring"],
-    "vendor_lookup": ["export"],
-    "anomaly": ["vendor_lookup"],
-    "multi_task": ["confidence_scoring"],
+    "anomaly": ["confidence_scoring"],
+    "multi_task": ["anomaly"],
+    "export": ["multi_task"],
     "cross_page": [("end_to_end_vlm", "llm_extraction")],
     "knowledge_graph": [("end_to_end_vlm", "llm_extraction")],
     "table_extraction": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
-    "evaluation": [("end_to_end_vlm", "llm_extraction")],
+    "evaluation": ["export"],
 }
 
 # Flatten prereqs for downstream map (include all alternatives)
@@ -122,6 +122,7 @@ class PipelineJob:
         self._start_total: float = 0.0
         self._step_config_overrides: Dict[str, Any] = {}
         self._corrections: Dict[str, Any] = {}
+        self._target_fields_override: Optional[list[str]] = None
 
     @property
     def elapsed(self) -> float:
@@ -187,6 +188,8 @@ class PipelineJob:
         if target_fields:
             self.config.llm_extraction.target_fields = target_fields
             self.config.end_to_end_vlm.target_fields = target_fields
+            self.config.validation.required_fields = target_fields
+            self._target_fields_override = target_fields
         if model:
             self.config.llm_extraction.model = model
             self.config.vision_ocr.post_correct_model = model
@@ -200,6 +203,28 @@ class PipelineJob:
         self._step_config_overrides.clear()
         self.error = None
 
+    def _activate_vlm_fallback(self):
+        """Enable OCR+LLM pipeline when VLM extraction returns empty fields."""
+        logger.info("VLM fallback triggered — enabling OCR+LLM pipeline")
+        self.config.hybrid_ocr.enabled = True
+        self.config.embedding.enabled = True
+        self.config.retrieval.enabled = True
+        self.config.rag.enabled = True
+        self.config.llm_extraction.enabled = True
+
+        self._orchestrator = PipelineOrchestrator(self.config)
+        self._step_map = {s.name: s for s in self._orchestrator.steps}
+        self._completed_steps.intersection_update(self._step_map.keys())
+
+        asyncio.create_task(
+            ws_manager.broadcast(self.session_id, {
+                "type": "vlm_fallback",
+                "session_id": self.session_id,
+                "message": "VLM returned empty results — switching to OCR+LLM pipeline",
+                "enabled_steps": list(self._step_map.keys()),
+            })
+        )
+
     def rerun_step(self, step_name: str, config: Optional[Dict[str, Any]] = None) -> bool:
         """Remove step and its downstream from completed, signal to re-run."""
         if step_name not in self._step_map:
@@ -209,7 +234,7 @@ class PipelineJob:
             self._step_config_overrides.update(config)
 
         downstream = _get_downstream(step_name)
-        discarded = [step_name] + downstream
+        discarded = [step_name] + list(downstream)
         self._completed_steps.discard(step_name)
         for ds in downstream:
             self._completed_steps.discard(ds)
@@ -324,6 +349,9 @@ class PipelineJob:
                             f"Document type '{detected}' → auto-selected model '{recommended}'"
                         )
 
+            if step.name == "end_to_end_vlm" and self._ctx.metadata.get("vlm_fallback_needed"):
+                self._activate_vlm_fallback()
+
             return True
         except asyncio.TimeoutError:
             elapsed = time.time() - t0
@@ -390,6 +418,9 @@ class PipelineJob:
             session_id=self.session_id,
             input_path=self.input_path,
         )
+
+        if hasattr(self, '_target_fields_override') and self._target_fields_override:
+            self._ctx.metadata["target_fields"] = self._target_fields_override
 
         async def passthrough_progress(step, status, elapsed, data):
             msg = {

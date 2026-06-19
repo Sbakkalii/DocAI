@@ -86,10 +86,17 @@ class EvaluationStep(BaseStep):
         super().__init__(config)
         self.metrics = config.evaluation.metrics
         self.ground_truth_path = config.evaluation.ground_truth_path
-        fields = config.llm_extraction.target_fields if config.llm_extraction.enabled else config.end_to_end_vlm.target_fields
-        self.target_fields = set(fields)
+
+    def _get_target_fields(self, ctx: PipelineContext) -> set:
+        """Get target fields from pipeline context overrides or config, in that order."""
+        override_fields = ctx.metadata.get("target_fields")
+        if override_fields:
+            return set(override_fields)
+        fields = self.config.llm_extraction.target_fields if self.config.llm_extraction.enabled else self.config.end_to_end_vlm.target_fields
+        return set(fields)
 
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
+        self.target_fields = self._get_target_fields(ctx)
         results: Dict[str, Any] = {}
         if "accuracy" in self.metrics:
             results["accuracy"] = await self._compute_accuracy(ctx)
@@ -103,6 +110,9 @@ class EvaluationStep(BaseStep):
             results["format_compliance"] = await self._compute_format_compliance(ctx)
         if "detection_rate" in self.metrics:
             results["detection_rate"] = await self._compute_detection_rate(ctx)
+
+        results["enrichment"] = self._compute_enrichment(ctx)
+
         ctx.evaluation_results = results
         self.logger.info(
             f"Evaluation results: accuracy={results.get('accuracy', {}).get('score')}, "
@@ -117,6 +127,37 @@ class EvaluationStep(BaseStep):
         self.logger.info(f"Result keys: {list(results.keys())}, pages: {len(ctx.pages)}, "
                          f"extracted_fields on page 0: {has_fields} ({fields_count} fields)")
         return ctx
+
+    def _compute_enrichment(self, ctx: PipelineContext) -> Dict[str, Any]:
+        """Log enrichment data from vendor lookup, anomaly detection, and agentic retries."""
+        enrichment: Dict[str, Any] = {
+            "document_type": ctx.metadata.get("document_type", "unknown"),
+            "document_type_confidence": ctx.metadata.get("document_type_confidence", 0.0),
+            "agentic_retries": ctx.metadata.get("agentic_retries", 0),
+        }
+
+        vendor_matches = []
+        anomaly_flags = []
+        for page in ctx.pages:
+            vm = page.metadata.get("vendor_match")
+            if vm:
+                vendor_matches.append({
+                    "page": page.page_number,
+                    "vendor_name": vm.get("name"),
+                    "match_score": vm.get("_score"),
+                    "vendor_id": page.metadata.get("vendor_id"),
+                })
+
+            for a in page.metadata.get("anomalies", []):
+                anomaly_flags.append({"page": page.page_number, **a})
+            for a in page.metadata.get("vendor_anomalies", []):
+                anomaly_flags.append({"page": page.page_number, **a})
+
+        enrichment["vendor_matches"] = vendor_matches
+        enrichment["anomaly_flags"] = anomaly_flags
+        enrichment["overall_confidence"] = ctx.metadata.get("overall_confidence")
+
+        return enrichment
 
     @staticmethod
     def _ocr_norm(v: str) -> str:

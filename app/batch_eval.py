@@ -116,6 +116,7 @@ async def run_batch_eval(
         if target_fields:
             run_cfg.llm_extraction.target_fields = target_fields
             run_cfg.end_to_end_vlm.target_fields = target_fields
+            run_cfg.validation.required_fields = target_fields
 
         orchestrator = PipelineOrchestrator(run_cfg)
         step_times: Dict[str, float] = {}
@@ -131,6 +132,8 @@ async def run_batch_eval(
                 session_id=session_id,
                 on_progress=on_progress,
             )
+            if target_fields:
+                ctx.metadata["target_fields"] = target_fields
             total_time = time.time() - doc_start
 
             # Collect evaluation results

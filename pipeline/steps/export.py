@@ -77,7 +77,6 @@ class ExportStep(BaseStep):
     # ═══════════════════════════════════════════════════════════
 
     def _export_ubl_xml(self, ctx: PipelineContext) -> str:
-        # Gather all extracted fields across pages
         all_fields: Dict[str, Any] = {}
         for page in ctx.pages:
             if page.extracted_fields:
@@ -103,10 +102,9 @@ class ExportStep(BaseStep):
 
         SubElement(ubl, f"{{{ns['cbc']}}}ID").text = inv_id
         SubElement(ubl, f"{{{ns['cbc']}}}IssueDate").text = issue_date
-        SubElement(ubl, f"{{{ns['cbc']}}}DocumentCurrencyCode").text = self._currency_from_fields(all_fields)
-        SubElement(ubl, f"{{{ns['cbc']}}}InvoiceTypeCode").text = "380"  # Commercial invoice
+        SubElement(ubl, f"{{{ns['cbc']}}}DocumentCurrencyCode").text = self._resolve_currency(ctx, all_fields)
+        SubElement(ubl, f"{{{ns['cbc']}}}InvoiceTypeCode").text = "380"
 
-        # Supplier
         supplier = self._str(all_fields, "SUPPLIER")
         if supplier:
             party = SubElement(ubl, f"{{{ns['cac']}}}AccountingSupplierParty")
@@ -119,17 +117,19 @@ class ExportStep(BaseStep):
                 paddr = SubElement(pty, f"{{{ns['cac']}}}PostalAddress")
                 SubElement(paddr, f"{{{ns['cbc']}}}StreetName").text = addr
 
-        # Totals
+            vendor_id = self._get_vendor_id(ctx)
+            if vendor_id:
+                SubElement(pty, f"{{{ns['cbc']}}}CompanyID").text = str(vendor_id)
+
         total = self._str(all_fields, "TOTAL")
         total_amount = self._str(all_fields, "TOTAL_AMOUNT") or total
+        currency_code = self._resolve_currency(ctx, all_fields)
         if total_amount:
             monetary = SubElement(ubl, f"{{{ns['cac']}}}LegalMonetaryTotal")
-            # TOTAL_AMOUNT is tax-inclusive, TOTAL is tax-exclusive
-            SubElement(monetary, f"{{{ns['cbc']}}}TaxExclusiveAmount", {"currencyID": self._currency_from_fields(all_fields)}).text = self._num(total) if total else "0.00"
-            SubElement(monetary, f"{{{ns['cbc']}}}TaxInclusiveAmount", {"currencyID": self._currency_from_fields(all_fields)}).text = self._num(total_amount) if total_amount else "0.00"
-            SubElement(monetary, f"{{{ns['cbc']}}}PayableAmount", {"currencyID": self._currency_from_fields(all_fields)}).text = self._num(total_amount) if total_amount else "0.00"
+            SubElement(monetary, f"{{{ns['cbc']}}}TaxExclusiveAmount", {"currencyID": currency_code}).text = self._num(total) if total else "0.00"
+            SubElement(monetary, f"{{{ns['cbc']}}}TaxInclusiveAmount", {"currencyID": currency_code}).text = self._num(total_amount) if total_amount else "0.00"
+            SubElement(monetary, f"{{{ns['cbc']}}}PayableAmount", {"currencyID": currency_code}).text = self._num(total_amount) if total_amount else "0.00"
 
-        # Line items
         lines = all_fields.get("line_items", [])
         if lines:
             for li in lines:
@@ -143,9 +143,14 @@ class ExportStep(BaseStep):
                 qty = self._li_str(li, "quantity")
                 if qty: SubElement(line, f"{{{ns['cbc']}}}InvoicedQuantity", {"unitCode": "C62"}).text = self._num(qty)
                 price = self._li_str(li, "unit_price")
-                if price: SubElement(line, f"{{{ns['cbc']}}}PriceAmount", {"currencyID": self._currency_from_fields(all_fields)}).text = self._num(price)
+                if price: SubElement(line, f"{{{ns['cbc']}}}PriceAmount", {"currencyID": currency_code}).text = self._num(price)
                 sub = self._li_str(li, "sub_total")
-                if sub: SubElement(line, f"{{{ns['cbc']}}}LineExtensionAmount", {"currencyID": self._currency_from_fields(all_fields)}).text = self._num(sub)
+                if sub: SubElement(line, f"{{{ns['cbc']}}}LineExtensionAmount", {"currencyID": currency_code}).text = self._num(sub)
+
+        anomaly_flags = self._collect_anomaly_flags(ctx)
+        if anomaly_flags:
+            note = SubElement(ubl, f"{{{ns['cbc']}}}Note")
+            note.text = "ANOMALY_FLAGS: " + "; ".join(anomaly_flags)
 
         xml_str = minidom.parseString(tostring(ubl, 'utf-8')).toprettyxml(indent="  ")
         return f'<?xml version="1.0" encoding="UTF-8"?>\n{xml_str[xml_str.index("<Invoice"):]}'
@@ -300,6 +305,36 @@ class ExportStep(BaseStep):
             if val and "$" in val: return "USD"
             if val and "£" in val: return "GBP"
         return "EUR"
+
+    def _resolve_currency(self, ctx: PipelineContext, fields: Dict) -> str:
+        for page in ctx.pages:
+            profile = page.metadata.get("vendor_profile", {})
+            if profile.get("currency"):
+                return profile["currency"]
+        return self._currency_from_fields(fields)
+
+    def _get_vendor_id(self, ctx: PipelineContext) -> Optional[str]:
+        for page in ctx.pages:
+            vid = page.metadata.get("vendor_id")
+            if vid:
+                return str(vid)
+            match = page.metadata.get("vendor_match", {})
+            if match and match.get("id"):
+                return str(match["id"])
+        return None
+
+    def _collect_anomaly_flags(self, ctx: PipelineContext) -> List[str]:
+        flags = []
+        for page in ctx.pages:
+            for anomaly in page.metadata.get("anomalies", []):
+                atype = anomaly.get("type", "unknown")
+                msg = anomaly.get("message", "")
+                flags.append(f"{atype}: {msg}" if msg else atype)
+            for anomaly in page.metadata.get("vendor_anomalies", []):
+                atype = anomaly.get("type", "unknown")
+                msg = anomaly.get("message", "")
+                flags.append(f"vendor_{atype}: {msg}" if msg else f"vendor_{atype}")
+        return flags
 
     @staticmethod
     def _format_date(value: str, fmt: str = "%Y-%m-%d") -> Optional[str]:
