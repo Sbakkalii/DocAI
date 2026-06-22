@@ -1509,6 +1509,14 @@ export function PipelineView({
     }).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (sessionId && qaOpen) {
+      fetch(`/api/qa/default-prompt/${sessionId}`).then(r => r.json()).then(d => {
+        if (d.prompt) setQaSystemPrompt(d.prompt)
+      }).catch(() => {})
+    }
+  }, [sessionId, qaOpen])
+
   const qaButton = sessionId && (
     <Button variant="default" size="icon-lg"
       onClick={() => setQaOpen(!qaOpen)}

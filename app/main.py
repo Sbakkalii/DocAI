@@ -753,6 +753,52 @@ def list_dataset_documents(model: str = "", page: int = 1, per_page: int = 30, p
     }
 
 
+@app.get("/api/qa/default-prompt/{session_id}")
+async def default_qa_prompt(session_id: str):
+    """Return a dynamic system prompt tailored to the current document."""
+    from app.pipeline_runner import get_job
+    job = get_job(session_id)
+    if not job or not job._ctx:
+        return {"prompt": "You are a precise document QA assistant. Answer using ONLY the extracted fields and OCR text provided. Append FIELD NAME in ALL CAPS in parentheses after every value."}
+
+    ctx = job._ctx
+    doc_type = ctx.metadata.get("document_type", "document")
+    vendor = ""
+    total = ""
+    fields_summary = []
+
+    for page in ctx.pages:
+        fields = page.extracted_fields or {}
+        if fields.get("SUPPLIER"):
+            vendor = str(fields["SUPPLIER"])
+        if fields.get("TOTAL"):
+            total = str(fields["TOTAL"])
+        for k, v in fields.items():
+            if k == "line_items":
+                continue
+            if v is not None and str(v).strip() and str(v) != "null":
+                fields_summary.append(f"  {k}: {v}")
+
+    lines = [
+        f"You are a precise QA assistant for a {doc_type} document.",
+        f"This document contains the following extracted fields:",
+        *fields_summary[:30],
+    ]
+    if vendor:
+        lines.append(f"\nKey information: Supplier = {vendor}")
+    if total:
+        lines.append(f"Total amount = {total}")
+    lines.extend([
+        "",
+        "## Grounding Rules",
+        "1. ALWAYS append the FIELD NAME in ALL CAPS in parentheses after every value you cite.",
+        '   ✓ Correct: "The total is 24,120.00 (TOTAL)"',
+        "2. If you're unsure or data is missing, say so. Never fabricate field names.",
+        "3. Answer in the user's language. Be concise but conversational.",
+    ])
+    return {"prompt": "\n".join(lines)}
+
+
 @app.get("/api/qa/models")
 async def list_qa_models():
     """Return available text-only LLM models for QA (filters out VLMs)."""

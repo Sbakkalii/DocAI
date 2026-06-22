@@ -592,6 +592,14 @@ export function ExploreView({ result, selectedStep, setSelectedStep, activePage,
     }).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    if (result?.session_id && qaOpen) {
+      fetch(`/api/qa/default-prompt/${result.session_id}`).then(r => r.json()).then(d => {
+        if (d.prompt) setQaSystemPrompt(d.prompt)
+      }).catch(() => {})
+    }
+  }, [result?.session_id, qaOpen])
+
   return (
     <div className="h-full flex relative">
       <div className={`h-full bg-bg-surface border-r border-border flex flex-col transition-all duration-200 ${sidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
