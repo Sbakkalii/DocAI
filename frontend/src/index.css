@@ -15,28 +15,28 @@
   --accent-coral-dark: #9A330A;
   --accent-green: #16A34A;
   --accent-yellow: #B8860B;
-  --text-primary: #E2E8F0;
-  --text-muted: #64748B;
-  --border: rgba(194, 65, 12, 0.18);
+  --text-primary: #F1F5F9;
+  --text-muted: #94A3B8;
+  --border: rgba(194, 65, 12, 0.25);
 
   --background: var(--bg-base);
-  --foreground: #E2E8F0;
+  --foreground: #F1F5F9;
   --card: #0A1628;
-  --card-foreground: #E2E8F0;
+  --card-foreground: #F1F5F9;
   --popover: #0A1628;
-  --popover-foreground: #E2E8F0;
+  --popover-foreground: #F1F5F9;
   --primary: #C2410C;
   --primary-foreground: #FFFFFF;
   --secondary: #0F1F3A;
-  --secondary-foreground: #E2E8F0;
+  --secondary-foreground: #F1F5F9;
   --muted: #0A1628;
-  --muted-foreground: #64748B;
+  --muted-foreground: #94A3B8;
   --accent: #0F1F3A;
-  --accent-foreground: #E2E8F0;
+  --accent-foreground: #F1F5F9;
   --destructive: #DC2626;
   --destructive-foreground: #FFFFFF;
-  --border: rgba(194, 65, 12, 0.18);
-  --input: rgba(194, 65, 12, 0.18);
+  --border: rgba(194, 65, 12, 0.25);
+  --input: rgba(194, 65, 12, 0.25);
   --ring: #C2410C;
   --radius: 0.625rem;
 }
@@ -102,11 +102,9 @@
   *::-webkit-scrollbar-thumb:hover { background: var(--accent-coral); }
 
   body {
-    @apply antialiased;
     background:
-      radial-gradient(ellipse at 20% 55%, rgba(30, 58, 95, 0.3) 0%, transparent 50%),
-      radial-gradient(ellipse at 80% 25%, rgba(194, 65, 12, 0.18) 0%, transparent 50%),
-      radial-gradient(ellipse at 50% 80%, rgba(194, 65, 12, 0.08) 0%, transparent 40%),
+      radial-gradient(ellipse at 20% 55%, rgba(30, 58, 95, 0.4) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 25%, rgba(194, 65, 12, 0.15) 0%, transparent 50%),
       var(--bg-base);
     color: var(--text-primary);
     font-family: 'Geist Variable', system-ui, -apple-system, sans-serif;
