@@ -233,7 +233,7 @@ class KnowledgeGraphConfig(BaseModel):
 
 
 class ConfidenceConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = False
     threshold_low: float = 0.70
     threshold_high: float = 0.85
 
@@ -335,7 +335,6 @@ STEP_ORDER = [
     "document_classifier",
     "vendor_lookup",
     "validation",
-    "confidence_scoring",
     "anomaly",
     "multi_task",
     "export",
