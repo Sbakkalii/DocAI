@@ -753,6 +753,28 @@ def list_dataset_documents(model: str = "", page: int = 1, per_page: int = 30, p
     }
 
 
+@app.get("/api/qa/models")
+async def list_qa_models():
+    """Return available text-only LLM models for QA (filters out VLMs)."""
+    VLM_PREFIXES = ("gemma3", "qwen2.5vl", "deepseek-ocr", "llava", "bakllava", "minicpm")
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://localhost:11434/api/tags")
+            if resp.status_code == 200:
+                all_models = [m["name"] for m in resp.json().get("models", [])]
+                llm_models = sorted(
+                    m for m in all_models
+                    if not any(m.lower().startswith(p) for p in VLM_PREFIXES)
+                )
+                if llm_models:
+                    return {"models": llm_models}
+    except Exception:
+        pass
+    from pipeline.config import AVAILABLE_MODELS
+    return {"models": list(AVAILABLE_MODELS)}
+
+
 @app.post("/api/qa/{session_id}")
 async def answer_question(session_id: str, body: Optional[Dict] = None):
     """Answer a natural language question about the document using extracted fields."""
@@ -835,10 +857,27 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
     try:
         model_name = job.config.llm_extraction.model
     except AttributeError:
-        model_name = "qwen2.5:7b-instruct-q4_K_M"
+        model_name = None
 
     if body.get("model"):
         model_name = body["model"]
+
+    if not model_name:
+        try:
+            import httpx
+            VLM_PREFIXES = ("gemma3", "qwen2.5vl", "deepseek-ocr", "llava", "bakllava", "minicpm")
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.get("http://localhost:11434/api/tags")
+                if resp.status_code == 200:
+                    all_models = [m["name"] for m in resp.json().get("models", [])]
+                    llm_models = [m for m in all_models if not any(m.lower().startswith(p) for p in VLM_PREFIXES)]
+                    if llm_models:
+                        model_name = llm_models[0]
+        except Exception:
+            pass
+
+    if not model_name:
+        model_name = "llama3.2:3b-instruct-q4_K_M"
 
     custom_prompt = body.get("system_prompt", "").strip()
 

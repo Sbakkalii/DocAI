@@ -1434,6 +1434,8 @@ export function PipelineView({
   const [qaLoading, setQaLoading] = useState(false)
   const [qaSystemPrompt, setQaSystemPrompt] = useState(DEFAULT_QA_PROMPT)
   const [qaShowPrompt, setQaShowPrompt] = useState(true)
+  const [qaModels, setQaModels] = useState<string[]>([])
+  const [qaModel, setQaModel] = useState('')
   const qaEndRef = useRef<HTMLDivElement>(null)
   const qaMessagesRef = useRef(qaMessages)
   qaMessagesRef.current = qaMessages
@@ -1474,6 +1476,7 @@ export function PipelineView({
         messages: prevMessages.map(m => ({ role: m.role, content: m.content })),
       }
       if (qaSystemPrompt.trim()) body.system_prompt = qaSystemPrompt.trim()
+      if (qaModel) body.model = qaModel
       const res = await fetch(`/api/qa/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1497,6 +1500,15 @@ export function PipelineView({
     qaEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [qaMessages])
 
+  useEffect(() => {
+    fetch('/api/qa/models').then(r => r.json()).then(d => {
+      if (d.models?.length) {
+        setQaModels(d.models)
+        setQaModel(d.models[0])
+      }
+    }).catch(() => {})
+  }, [])
+
   const qaButton = sessionId && (
     <Button variant="default" size="icon-lg"
       onClick={() => setQaOpen(!qaOpen)}
@@ -1511,7 +1523,13 @@ export function PipelineView({
         <div className="fixed bottom-4 right-4 w-[36rem] h-[42rem] bg-bg-surface border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden z-50 animate-scale-in">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
             <span className="text-sm font-semibold text-text-primary">Ask about this document</span>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {qaModels.length > 0 && (
+                <select value={qaModel} onChange={e => setQaModel(e.target.value)}
+                  className="bg-bg-base text-xs text-text-primary border border-border rounded-lg px-2 py-1 outline-none focus:border-accent-violet max-w-[160px] truncate">
+                  {qaModels.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
               <Button variant="ghost" size="sm" onClick={() => setQaShowPrompt(!qaShowPrompt)}>
                 {qaShowPrompt ? 'Hide' : 'Prompt'}
               </Button>

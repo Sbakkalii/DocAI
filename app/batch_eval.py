@@ -1,6 +1,4 @@
-"""
-Batch evaluation: process N documents through the pipeline with latency/throughput metrics.
-"""
+"""Batch evaluation: process N documents through the pipeline with latency/throughput metrics."""
 
 import asyncio
 import logging
@@ -17,9 +15,10 @@ logger = logging.getLogger("app.batch_eval")
 UPLOAD_DIR = Path("output/uploads")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+_MAX_CONCURRENT = 3
+
 
 def _percentile(data: List[float], p: float) -> float:
-    """Compute the p-th percentile of data."""
     if not data:
         return 0.0
     sorted_data = sorted(data)
@@ -31,6 +30,122 @@ def _percentile(data: List[float], p: float) -> float:
     return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
 
 
+def _aggregate_per_field(accuracies: List[dict]) -> Dict[str, dict]:
+    """Aggregate per-field accuracy across multiple documents."""
+    field_metrics: Dict[str, Dict[str, float]] = {}
+    for acc in accuracies:
+        per_field = acc.get("per_field") if isinstance(acc, dict) else None
+        if not per_field:
+            continue
+        for fname, metrics in per_field.items():
+            if not isinstance(metrics, dict):
+                continue
+            if fname not in field_metrics:
+                field_metrics[fname] = {"precision": [], "recall": [], "f1": []}
+            for key in ("precision", "recall", "f1"):
+                val = metrics.get(key)
+                if val is not None:
+                    field_metrics[fname][key].append(float(val))
+    result = {}
+    for fname, vals in field_metrics.items():
+        result[fname] = {
+            k: round(sum(v) / len(v), 3) if v else 0.0
+            for k, v in vals.items()
+        }
+    return result
+
+
+async def _process_single_doc(
+    img_path: Path,
+    idx: int,
+    total: int,
+    factory,
+    mode: str,
+    model_name: str,
+    embedding_model: str,
+    target_fields: Optional[List[str]],
+) -> Dict[str, Any]:
+    """Process a single document through the pipeline and return metrics."""
+    doc_label = f"{img_path.parent.parent.name}/{img_path.name}"
+    logger.info(f"  [{idx + 1}/{total}] Processing {doc_label}")
+
+    ext = img_path.suffix
+    sess_id = str(uuid.uuid4().hex)[:12]
+    safe_name = f"batch_{sess_id}{ext}"
+    save_path = UPLOAD_DIR / safe_name
+
+    import shutil
+    shutil.copy2(str(img_path), str(save_path))
+
+    session_id = f"batch_{sess_id}"
+
+    run_cfg = factory()
+    run_cfg.llm_extraction.model = model_name
+    run_cfg.embedding.model = embedding_model
+    run_cfg.session_id = session_id
+    run_cfg.original_filename = img_path.name
+    run_cfg.output_dir = "output/pipeline"
+
+    if target_fields:
+        run_cfg.llm_extraction.target_fields = target_fields
+        run_cfg.end_to_end_vlm.target_fields = target_fields
+        run_cfg.validation.required_fields = target_fields
+
+    orchestrator = PipelineOrchestrator(run_cfg)
+    step_times: Dict[str, float] = {}
+    doc_start = time.time()
+
+    async def on_progress(step, status, elapsed, data):
+        if status == "completed":
+            step_times[step] = elapsed
+
+    try:
+        ctx = await orchestrator.run(
+            input_path=str(save_path),
+            session_id=session_id,
+            on_progress=on_progress,
+        )
+        if target_fields:
+            ctx.metadata["target_fields"] = target_fields
+        total_time = time.time() - doc_start
+
+        eval_results = ctx.evaluation_results or {}
+        accuracy = eval_results.get("accuracy", {})
+        faithfulness = eval_results.get("faithfulness", {})
+
+        result = {
+            "doc": doc_label,
+            "total_time": round(total_time, 3),
+            "step_times": {k: round(v, 3) for k, v in step_times.items()},
+            "accuracy": {
+                "exact_match": accuracy.get("score"),
+                "token_f1": accuracy.get("token_f1"),
+                "per_field": accuracy.get("fields", {}),
+            } if accuracy else None,
+            "faithfulness": {
+                "score": faithfulness.get("score"),
+            } if faithfulness else None,
+            "error": None,
+        }
+        logger.info(f"    Done in {total_time:.2f}s — accuracy={accuracy.get('score') if accuracy else 'N/A'}")
+        return result
+    except Exception as e:
+        logger.warning(f"    Failed: {e}")
+        return {
+            "doc": doc_label,
+            "total_time": round(time.time() - doc_start, 3),
+            "step_times": {},
+            "accuracy": None,
+            "faithfulness": None,
+            "error": str(e),
+        }
+    finally:
+        try:
+            save_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 async def run_batch_eval(
     mode: str = "hybrid",
     model_name: str = "qwen2.5:7b-instruct-q4_K_M",
@@ -38,14 +153,17 @@ async def run_batch_eval(
     num_docs: int = 5,
     target_fields: Optional[List[str]] = None,
     dataset_path: str = "data/documents/invoice_dataset",
+    max_concurrent: int = _MAX_CONCURRENT,
 ) -> Dict[str, Any]:
-    """Run pipeline on N dataset documents and return aggregate metrics."""
+    """Run pipeline on N dataset documents in parallel and return aggregate metrics.
 
+    Uses asyncio.Semaphore to limit concurrent pipeline runs.
+    Returns per-document metrics plus aggregate accuracy/latency/throughput stats.
+    """
     invoice_root = Path(dataset_path)
     if not invoice_root.exists():
         return {"error": f"Dataset not found: {dataset_path}"}
 
-    # Gather docs from first model directory (model_1 has representative samples)
     model_dirs = sorted(invoice_root.glob("invoice_dataset_model_*"))
     if not model_dirs:
         return {"error": "No model directories found"}
@@ -66,126 +184,40 @@ async def run_batch_eval(
     if not doc_paths:
         return {"error": "No documents found"}
 
-    logger.info(f"Batch eval: {len(doc_paths)} docs, mode={mode}, model={model_name}, embedding={embedding_model}")
+    logger.info(f"Batch eval: {len(doc_paths)} docs, mode={mode}, model={model_name}, embedding={embedding_model}, concurrency={max_concurrent}")
 
-    # Build config once (shared config for all runs)
     factory_map = {
         "hybrid": PipelineConfig.for_hybrid,
         "graph": PipelineConfig.for_graph,
         "end_to_end": PipelineConfig.for_end_to_end,
     }
     factory = factory_map.get(mode, PipelineConfig.for_hybrid)
-    config = factory()
-    config.llm_extraction.model = model_name
-    config.embedding.model = embedding_model
 
-    if target_fields:
-        config.llm_extraction.target_fields = target_fields
-        config.end_to_end_vlm.target_fields = target_fields
+    sem = asyncio.Semaphore(max_concurrent)
 
-    # Store original filename mapping for annotation lookup
-    config.original_filename = None
-
-    per_doc_results: List[Dict[str, Any]] = []
-    step_timings_sum: Dict[str, List[float]] = {}
-
-    for idx, img_path in enumerate(doc_paths):
-        doc_label = f"{img_path.parent.parent.name}/{img_path.name}"
-        logger.info(f"  [{idx+1}/{len(doc_paths)}] Processing {doc_label}")
-
-        # Copy to uploads
-        ext = img_path.suffix
-        sess_id = str(uuid.uuid4()).replace("-", "")[:12]
-        safe_name = f"batch_{sess_id}{ext}"
-        save_path = UPLOAD_DIR / safe_name
-
-        import shutil
-        shutil.copy2(str(img_path), str(save_path))
-
-        # Create session_id for this run
-        session_id = f"batch_{sess_id}"
-
-        # Configure for this run
-        run_cfg = factory()
-        run_cfg.llm_extraction.model = model_name
-        run_cfg.embedding.model = embedding_model
-        run_cfg.session_id = session_id
-        run_cfg.original_filename = img_path.name
-        run_cfg.output_dir = "output/pipeline"
-
-        if target_fields:
-            run_cfg.llm_extraction.target_fields = target_fields
-            run_cfg.end_to_end_vlm.target_fields = target_fields
-            run_cfg.validation.required_fields = target_fields
-
-        orchestrator = PipelineOrchestrator(run_cfg)
-        step_times: Dict[str, float] = {}
-        doc_start = time.time()
-
-        async def on_progress(step, status, elapsed, data):
-            if status == "completed":
-                step_times[step] = elapsed
-
-        try:
-            ctx = await orchestrator.run(
-                input_path=str(save_path),
-                session_id=session_id,
-                on_progress=on_progress,
+    async def run_one(idx: int, img_path: Path) -> Dict[str, Any]:
+        async with sem:
+            return await _process_single_doc(
+                img_path, idx, len(doc_paths), factory,
+                mode, model_name, embedding_model, target_fields,
             )
-            if target_fields:
-                ctx.metadata["target_fields"] = target_fields
-            total_time = time.time() - doc_start
 
-            # Collect evaluation results
-            eval_results = ctx.evaluation_results or {}
-            accuracy = eval_results.get("accuracy", {})
-            faithfulness = eval_results.get("faithfulness", {})
+    tasks = [run_one(idx, p) for idx, p in enumerate(doc_paths)]
+    per_doc_results = await asyncio.gather(*tasks)
 
-            # Accumulate step timings
-            for step_name, elapsed in step_times.items():
-                if step_name not in step_timings_sum:
-                    step_timings_sum[step_name] = []
-                step_timings_sum[step_name].append(elapsed)
+    step_timings_sum: Dict[str, List[float]] = {}
+    for r in per_doc_results:
+        for step_name, elapsed in r.get("step_times", {}).items():
+            step_timings_sum.setdefault(step_name, []).append(elapsed)
 
-            per_doc_results.append({
-                "doc": doc_label,
-                "total_time": round(total_time, 3),
-                "step_times": {k: round(v, 3) for k, v in step_times.items()},
-                "accuracy": {
-                    "exact_match": accuracy.get("score"),
-                    "token_f1": accuracy.get("token_f1"),
-                    "per_field": accuracy.get("fields", {}),
-                } if accuracy else None,
-                "faithfulness": {
-                    "score": faithfulness.get("score"),
-                } if faithfulness else None,
-                "error": None,
-            })
-
-            logger.info(f"    Done in {total_time:.2f}s — accuracy={accuracy.get('score') if accuracy else 'N/A'}")
-
-        except Exception as e:
-            logger.warning(f"    Failed: {e}")
-            total_time = time.time() - doc_start
-            per_doc_results.append({
-                "doc": doc_label,
-                "total_time": round(total_time, 3),
-                "step_times": {},
-                "accuracy": None,
-                "faithfulness": None,
-                "error": str(e),
-            })
-
-        # Cleanup temp file
-        try:
-            save_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-    # Aggregate metrics
     total_times = [r["total_time"] for r in per_doc_results if r["error"] is None]
     accuracies = [r["accuracy"] for r in per_doc_results if r.get("accuracy")]
-    faithfulness_scores = [r["faithfulness"]["score"] for r in per_doc_results if r.get("faithfulness") and r["faithfulness"]["score"] is not None]
+    faithfulness_scores = [
+        r["faithfulness"]["score"] for r in per_doc_results
+        if r.get("faithfulness") and r["faithfulness"]["score"] is not None
+    ]
+
+    per_field_agg = _aggregate_per_field(accuracies)
 
     aggregate = {
         "total_docs": len(per_doc_results),
@@ -202,8 +234,13 @@ async def run_batch_eval(
             "max": round(max(total_times), 3) if total_times else 0,
         },
         "accuracy": {
-            "mean_exact_match": round(sum(a["exact_match"] for a in accuracies if a.get("exact_match") is not None) / len(accuracies), 3) if accuracies else None,
-            "mean_token_f1": round(sum(a["token_f1"] for a in accuracies if a.get("token_f1") is not None) / len(accuracies), 3) if accuracies else None,
+            "mean_exact_match": round(
+                sum(a["exact_match"] for a in accuracies if a.get("exact_match") is not None) / len(accuracies), 3
+            ) if accuracies else None,
+            "mean_token_f1": round(
+                sum(a["token_f1"] for a in accuracies if a.get("token_f1") is not None) / len(accuracies), 3
+            ) if accuracies else None,
+            "per_field": per_field_agg,
         } if accuracies else None,
         "faithfulness": {
             "mean": round(sum(faithfulness_scores) / len(faithfulness_scores), 3) if faithfulness_scores else None,
@@ -227,6 +264,7 @@ async def run_batch_eval(
             "model": model_name,
             "embedding_model": embedding_model,
             "num_docs": num_docs,
+            "max_concurrent": max_concurrent,
             "target_fields": target_fields,
         },
         "aggregate": aggregate,
