@@ -82,6 +82,10 @@ export default function App() {
           )}
           {!sessionId && activeView === 'dataset' ? (
             <div className="text-xs text-text-muted">Dataset Explorer</div>
+          ) : !sessionId && activeView === 'batch_eval' ? (
+            <div className="text-xs text-text-muted">Batch Evaluation</div>
+          ) : !sessionId && activeView === 'batch_queue' ? (
+            <div className="text-xs text-text-muted">Processing Queue</div>
           ) : !sessionId ? (
             <div className="text-xs text-text-muted">Agentic Document Intelligence</div>
           ) : null}
@@ -133,36 +137,41 @@ export default function App() {
         </div>
       )}
 
-      {/* Views */}
+      {/* Views — all mounted always, hidden via CSS to preserve state across tab switches */}
       <div className="flex-1 overflow-hidden">
-        {!sessionId && activeView === 'batch_eval' ? (
-          <BatchEvalView />
-        ) : !sessionId && activeView === 'batch_queue' ? (
-          <BatchQueueView />
-        ) : !sessionId && activeView === 'dataset' ? (
-          <DatasetView />
-        ) : !sessionId ? (
-          <UploadShell onStart={handleStart} />
-        ) : (
+        {!sessionId && (
           <>
-            {/* Always mount PipelineView (hidden = WebSocket stays alive so onDone fires) */}
-            <div className={activeView === 'pipeline' ? 'flex-1 overflow-hidden' : 'hidden'}>
-              <PipelineView
-                sessionId={sessionId}
-                onDone={handleExplore}
-                steps={steps}
-                setSteps={setSteps}
-                error={error}
-                setError={setError as (e: string | null) => void}
-                selectedStep={selectedStep}
-                onSelectStep={setSelectedStep}
-                waiting={waiting}
-                setWaiting={setWaiting}
-                setNextStepName={setNextStepName}
-                resultReady={!!result}
-              />
+            <div className={activeView === 'batch_eval' ? 'h-full' : 'hidden h-full'}>
+              <BatchEvalView />
+            </div>
+            <div className={activeView === 'batch_queue' ? 'h-full' : 'hidden h-full'}>
+              <BatchQueueView />
+            </div>
+            <div className={activeView === 'dataset' ? 'h-full' : 'hidden h-full'}>
+              <DatasetView />
+            </div>
+            <div className={activeView === 'pipeline' ? 'h-full' : 'hidden h-full'}>
+              <UploadShell onStart={handleStart} />
             </div>
           </>
+        )}
+        {sessionId && (
+          <div className={activeView === 'pipeline' ? 'h-full' : 'hidden h-full'}>
+            <PipelineView
+              sessionId={sessionId}
+              onDone={handleExplore}
+              steps={steps}
+              setSteps={setSteps}
+              error={error}
+              setError={setError as (e: string | null) => void}
+              selectedStep={selectedStep}
+              onSelectStep={setSelectedStep}
+              waiting={waiting}
+              setWaiting={setWaiting}
+              setNextStepName={setNextStepName}
+              resultReady={!!result}
+            />
+          </div>
         )}
       </div>
     </div>
