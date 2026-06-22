@@ -34,6 +34,11 @@ from pipeline.steps.multi_task import MultiTaskStep
 from pipeline.steps.hybrid_ocr import HybridOCRStep
 from pipeline.steps.document_graph import DocumentGraphStep
 from pipeline.steps.end_to_end_vlm import EndToEndVLMStep
+from pipeline.steps.parallel_stream_splitter import ParallelStreamSplitterStep
+from pipeline.steps.page_level_classifier import PageLevelClassifierStep
+from pipeline.steps.map_phase_extraction import MapPhaseExtractionStep
+from pipeline.steps.reduce_phase_stitching import ReducePhaseStitchingStep
+from pipeline.steps.global_validation import GlobalValidationStep
 
 def _compute_predicted_annotations(page: PageResult) -> list:
     """Compute predicted annotations from extracted fields + OCR boxes, if available."""
@@ -59,6 +64,11 @@ STEP_REGISTRY: Dict[str, Type[BaseStep]] = {
     "hybrid_ocr": HybridOCRStep,
     "document_graph": DocumentGraphStep,
     "end_to_end_vlm": EndToEndVLMStep,
+    "parallel_stream_splitter": ParallelStreamSplitterStep,
+    "page_level_classifier": PageLevelClassifierStep,
+    "map_phase_extraction": MapPhaseExtractionStep,
+    "reduce_phase_stitching": ReducePhaseStitchingStep,
+    "global_validation": GlobalValidationStep,
     "embedding": EmbeddingStep,
     "retrieval": RetrievalStep,
     "rag": RAGStep,
@@ -196,6 +206,53 @@ class PipelineOrchestrator:
                     "raw": p.metadata.get("e2e_vlm_raw", ""),
                 })
             return {"pages": pages_data}
+        elif step_name == "parallel_stream_splitter":
+            return {
+                "pages": [{
+                    "page_number": p.page_number,
+                    "image_path": p.metadata.get("image_path", ""),
+                    "rendered": bool(p.metadata.get("image_path")),
+                } for p in ctx.pages],
+                "cache_dir": ctx.metadata.get("splitter_cache_dir", ""),
+            }
+        elif step_name == "page_level_classifier":
+            return {
+                "manifest": ctx.metadata.get("page_type_manifest", {}),
+                "groups": ctx.metadata.get("page_type_groups", []),
+                "dominant_type": ctx.metadata.get("document_type", "UNKNOWN"),
+                "pages": [{
+                    "page_number": p.page_number,
+                    "page_type": p.page_type,
+                    "confidence": p.page_type_confidence,
+                } for p in ctx.pages],
+            }
+        elif step_name == "map_phase_extraction":
+            pages_data = []
+            for p in ctx.pages:
+                pages_data.append({
+                    "page_number": p.page_number,
+                    "fields": p.extracted_fields,
+                    "page_type": p.metadata.get("map_page_type", ""),
+                    "page_index": p.metadata.get("map_page_index", ""),
+                })
+            return {"pages": pages_data}
+        elif step_name == "reduce_phase_stitching":
+            return {
+                "stitched_document": ctx.metadata.get("stitched_document", {}),
+                "num_page_extractions": len(ctx.metadata.get("page_extractions", [])),
+            }
+        elif step_name == "global_validation":
+            pages_data = []
+            for p in ctx.pages:
+                pages_data.append({
+                    "page_number": p.page_number,
+                    "validation": p.validation_result,
+                })
+            return {
+                "pages": pages_data,
+                "merge_issues": ctx.metadata.get("merge_consistency_issues", []),
+                "reduce_retries": ctx.metadata.get("reduce_retry_count", 0),
+            }
         elif step_name == "embedding":
             return {
                 "pages": [{

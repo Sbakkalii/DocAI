@@ -316,39 +316,166 @@ class EndToEndVLMStep(BaseStep):
             return ctx
 
         self.logger.info(f"Processing {len(pages_with_images)} pages: {[p.page_number for _, p in pages_with_images]}")
-        for i, page in pages_with_images:
-            self.logger.info(f"  Page {page.page_number}: image_path={page.metadata.get('image_path')}")
 
-        self.logger.info(f"Processing {len(pages_with_images)} pages in parallel")
+        if self.config.ensemble_vlm.enabled:
+            self.logger.info(f"Using multi-VLM ensemble with models: {self.config.ensemble_vlm.models}")
+            await self._ensemble_extract(ctx, pages_with_images, doc_type)
+        else:
+            for i, page in pages_with_images:
+                self.logger.info(f"  Page {page.page_number}: image_path={page.metadata.get('image_path')}")
 
-        tasks = [
-            self._process_page(client, page, schema, doc_type, session_id=ctx.session_id)
-            for _, page in pages_with_images
-        ]
+            self.logger.info(f"Processing {len(pages_with_images)} pages in parallel")
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = [
+                self._process_page(client, page, schema, doc_type, session_id=ctx.session_id)
+                for _, page in pages_with_images
+            ]
 
-        for (i, page), result in zip(pages_with_images, results):
-            if isinstance(result, Exception):
-                self.logger.error(f"Page {page.page_number} failed: {result}")
-                continue
-            fields, metadata = result
-            page.extracted_fields = fields
-            page.metadata.update(metadata)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        all_empty = all(
-            not page.extracted_fields
-            for _, page in pages_with_images
-        )
-        if all_empty and pages_with_images:
-            ctx.metadata["vlm_fallback_needed"] = True
-            self.logger.warning("VLM returned empty fields for all pages — fallback to OCR+LLM recommended")
+            for (i, page), result in zip(pages_with_images, results):
+                if isinstance(result, Exception):
+                    self.logger.error(f"Page {page.page_number} failed: {result}")
+                    continue
+                fields, metadata = result
+                page.extracted_fields = fields
+                page.metadata.update(metadata)
+
+            all_empty = all(
+                not page.extracted_fields
+                for _, page in pages_with_images
+            )
+            if all_empty and pages_with_images:
+                ctx.metadata["vlm_fallback_needed"] = True
+                self.logger.warning("VLM returned empty fields for all pages — fallback to OCR+LLM recommended")
 
         ctx.metadata["document_language"] = "auto"
 
         await self._score_and_retry(ctx)
 
         return ctx
+
+    async def _ensemble_extract(self, ctx: PipelineContext, pages_with_images: list, doc_type: str):
+        """Run multiple VLM models on each page and merge results via voting."""
+        import ollama
+
+        schema = build_schema_for_document_type(doc_type)
+        ensemble_cfg = self.config.ensemble_vlm
+        models = ensemble_cfg.models
+        strategy = ensemble_cfg.strategy
+
+        sem = asyncio.Semaphore(ensemble_cfg.max_concurrency)
+
+        async def extract_with_model(page_idx: int, page, model: str) -> tuple:
+            """Run extraction with a specific model."""
+            client = ollama.AsyncClient(host=self.config.end_to_end_vlm.ollama_host)
+            async with sem:
+                corrections = self._load_corrections(doc_type)
+                system_prompt = self._build_system_prompt(doc_type, schema, corrections)
+                with open(page.metadata["image_path"], "rb") as f:
+                    img_b64 = base64.b64encode(f.read()).decode("utf-8")
+                response = await client.chat(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": "Extract all fields as JSON.", "images": [img_b64]},
+                    ],
+                    options={"temperature": 0.1, "num_predict": 4096},
+                    format=schema,
+                )
+                raw = response.get("message", {}).get("content", "").strip()
+                try:
+                    return model, json.loads(raw)
+                except json.JSONDecodeError:
+                    return model, {}
+
+        for page_idx, page in pages_with_images:
+            tasks = [extract_with_model(page_idx, page, model) for model in models]
+            model_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            all_fields = {}
+            for result in model_results:
+                if isinstance(result, Exception):
+                    continue
+                model_name, fields = result
+                all_fields[model_name] = fields
+
+            if not all_fields:
+                continue
+
+            merged = self._merge_ensemble_results(all_fields, strategy)
+            page.extracted_fields = merged["fields"]
+            page.metadata["e2e_used"] = True
+            page.metadata["e2e_vlm_raw"] = json.dumps(merged["fields"], indent=2)
+            page.metadata["vlm_text"] = self._build_vlm_text(merged["fields"])
+            page.metadata["vlm_schema_type"] = doc_type
+            page.metadata["ensemble_results"] = {
+                model: f"extracted {len(f)} fields" for model, f in all_fields.items()
+            }
+            page.metadata["ensemble_agreement"] = merged["agreement"]
+            self.logger.info(
+                f"Page {page.page_number}: ensemble merged {len(merged['fields'])} fields "
+                f"(agreement={merged['agreement']:.2f})"
+            )
+
+    @staticmethod
+    def _merge_ensemble_results(all_fields: Dict[str, dict], strategy: str) -> dict:
+        """Merge results from multiple models using voting or weighting."""
+        if not all_fields:
+            return {"fields": {}, "agreement": 0.0}
+
+        model_names = list(all_fields.keys())
+        if len(model_names) == 1:
+            return {"fields": all_fields[model_names[0]], "agreement": 1.0}
+
+        all_keys = set()
+        for fields in all_fields.values():
+            all_keys.update(fields.keys())
+        all_keys.discard("line_items")
+
+        merged = {}
+        agreement_values = []
+
+        for key in all_keys:
+            values = {}
+            for mname in model_names:
+                v = all_fields[mname].get(key)
+                if v is not None and v != "null":
+                    values[mname] = str(v)
+
+            if not values:
+                merged[key] = None
+                agreement_values.append(1.0)
+                continue
+
+            value_counts = {}
+            for v in values.values():
+                value_counts[v] = value_counts.get(v, 0) + 1
+
+            if strategy == "majority_vote":
+                best_val = max(value_counts, key=value_counts.get)
+                best_count = value_counts[best_val]
+                merged[key] = best_val
+                agreement_values.append(best_count / len(values))
+            elif strategy == "confidence_weighted":
+                best_val = max(value_counts, key=value_counts.get)
+                merged[key] = best_val
+                agreement_values.append(value_counts[best_val] / len(values))
+            else:
+                merged[key] = list(values.values())[0]
+                agreement_values.append(1.0)
+
+        line_items_sets = []
+        for mname in model_names:
+            li = all_fields[mname].get("line_items", [])
+            if isinstance(li, list) and li:
+                line_items_sets.append(li)
+
+        if line_items_sets:
+            merged["line_items"] = line_items_sets[0]
+
+        agreement = round(sum(agreement_values) / len(agreement_values), 3) if agreement_values else 0.0
+        return {"fields": merged, "agreement": agreement}
 
     async def execute_with_fallback(self, ctx: PipelineContext) -> PipelineContext:
         """Execute VLM with automatic fallback to OCR+LLM on failure."""

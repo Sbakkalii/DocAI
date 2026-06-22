@@ -209,7 +209,7 @@ async def upload_document(
     logger.info(f"Uploaded {file.filename} -> {save_path} (session={session_id})")
 
     # Use doc_understanding_mode as the config mode preset
-    effective_preset = f"mode:{doc_understanding_mode}" if doc_understanding_mode in ("hybrid", "graph", "end_to_end") else config_preset
+    effective_preset = f"mode:{doc_understanding_mode}" if doc_understanding_mode in ("hybrid", "graph", "end_to_end", "multi_page_vlm") else config_preset
 
     step_overrides = {}
     if retrieval_strategy in ("dense", "sparse", "hybrid"):
@@ -266,7 +266,7 @@ async def load_dataset_document(path: str = Form(...), filename: str = Form(""),
     if not doc_path.exists():
         raise HTTPException(status_code=404, detail=f"Document not found: {path}")
 
-    if mode not in ("hybrid", "graph", "end_to_end"):
+    if mode not in ("hybrid", "graph", "end_to_end", "multi_page_vlm"):
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
 
     session_id = str(uuid.uuid4()).replace("-", "")[:12]
@@ -306,7 +306,7 @@ async def update_session_config(session_id: str, mode: str = Form(""), target_fi
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
-    if mode and mode not in ("hybrid", "graph", "end_to_end"):
+    if mode and mode not in ("hybrid", "graph", "end_to_end", "multi_page_vlm"):
         raise HTTPException(status_code=400, detail=f"Invalid mode: {mode}")
     field_list = None
     if target_fields:
@@ -926,6 +926,7 @@ def list_presets():
         "presets": [
             {"id": "single_invoice", "label": "Single Invoice", "description": "Quick extraction for single-page invoices"},
             {"id": "multi_page", "label": "Multi-Page Document", "description": "Full pipeline for multi-page documents"},
+            {"id": "multi_page_vlm", "label": "Multi-Page VLM Map-Reduce", "description": "Async VLM map-reduce for multi-page documents (Track B)"},
             {"id": "mixed", "label": "Mixed (Default)", "description": "Auto-detect document type and apply appropriate pipeline"},
         ]
     }

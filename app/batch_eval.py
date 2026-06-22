@@ -218,6 +218,9 @@ async def run_batch_eval(
         } if step_timings_sum else {},
     }
 
+    from utils.confidence_calibration import get_calibration
+    get_calibration().update_from_batch_eval(per_doc_results)
+
     return {
         "config": {
             "mode": mode,

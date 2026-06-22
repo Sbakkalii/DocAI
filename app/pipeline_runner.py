@@ -26,6 +26,11 @@ STEP_PREREQS: Dict[str, list[Prereq]] = {
     "hybrid_ocr": ["ingestion"],
     "document_graph": ["ingestion"],
     "end_to_end_vlm": ["ingestion"],
+    "parallel_stream_splitter": ["ingestion"],
+    "page_level_classifier": ["parallel_stream_splitter"],
+    "map_phase_extraction": ["page_level_classifier"],
+    "reduce_phase_stitching": ["map_phase_extraction"],
+    "global_validation": ["reduce_phase_stitching"],
     "embedding": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
     "retrieval": ["embedding"],
     "rag": ["embedding"],
@@ -33,7 +38,7 @@ STEP_PREREQS: Dict[str, list[Prereq]] = {
     "vendor_lookup": [("end_to_end_vlm", "llm_extraction")],
     "validation": [("end_to_end_vlm", "llm_extraction", "vendor_lookup")],
     "confidence_scoring": ["validation"],
-    "anomaly": ["confidence_scoring"],
+    "anomaly": [("global_validation", "confidence_scoring")],
     "multi_task": ["anomaly"],
     "export": ["multi_task"],
     "cross_page": [("end_to_end_vlm", "llm_extraction")],
@@ -80,6 +85,11 @@ _STEP_TIMEOUTS: dict[str, float] = {
     "multi_task": 1800.0,
     "knowledge_graph": 1200.0,
     "anomaly": 900.0,
+    "parallel_stream_splitter": 600.0,
+    "page_level_classifier": 600.0,
+    "map_phase_extraction": 1200.0,
+    "reduce_phase_stitching": 600.0,
+    "global_validation": 600.0,
 }
 
 
@@ -650,6 +660,9 @@ def _build_result(ctx, total_time: float) -> dict:
         "classified_confidence": ctx.metadata.get("document_type_confidence", 0.0),
         "pages": pages,
         "num_pages": len(ctx.pages),
+        "stitched_document": ctx.metadata.get("stitched_document"),
+        "page_type_manifest": ctx.metadata.get("page_type_manifest"),
+        "reduce_retry_count": ctx.metadata.get("reduce_retry_count", 0),
         "timing": dict(ctx.timing),
         "total_time": round(total_time, 2),
         "evaluation": ctx.evaluation_results,
@@ -675,12 +688,18 @@ async def start_pipeline(
         config_mode = "graph"
     elif config_preset.startswith("mode:"):
         config_mode = config_preset.split(":", 1)[1]
-        if config_mode == "hybrid":
+
+        if config_mode == "end_to_end":
+            page_count = _quick_page_count(input_path)
+            if page_count > 1:
+                config = PipelineConfig.for_multi_page_vlm()
+                config_mode = "multi_page_vlm"
+            else:
+                config = PipelineConfig.for_end_to_end()
+        elif config_mode == "hybrid":
             config = PipelineConfig.for_hybrid()
         elif config_mode == "graph":
             config = PipelineConfig.for_graph()
-        elif config_mode == "end_to_end":
-            config = PipelineConfig.for_end_to_end()
         else:
             config = PipelineConfig.for_mixed_document()
             config_mode = "hybrid"
@@ -695,12 +714,13 @@ async def start_pipeline(
 
     ollama_host = os.environ.get("OLLAMA_HOST", "")
     if ollama_host:
-        for cfg_name in ("ocr", "vision_ocr", "hybrid_ocr", "end_to_end_vlm", "multi_task"):
+        for cfg_name in ("ocr", "vision_ocr", "hybrid_ocr", "end_to_end_vlm", "multi_task",
+                         "page_level_classifier", "map_phase_extraction", "reduce_phase_stitching"):
             step_cfg = getattr(config, cfg_name, None)
             if step_cfg is not None and hasattr(step_cfg, "ollama_host"):
                 step_cfg.ollama_host = ollama_host
 
-    if enable_all and config_mode != "end_to_end":
+    if enable_all and config_mode not in ("end_to_end", "multi_page_vlm"):
         config.cross_page.enabled = True
 
     if step_overrides:
@@ -720,3 +740,15 @@ async def start_pipeline(
 
 def get_job(session_id: str) -> Optional[PipelineJob]:
     return _active_sessions.get(session_id)
+
+
+def _quick_page_count(filepath: str) -> int:
+    """Fast page count using PyMuPDF without rendering."""
+    import fitz
+    try:
+        doc = fitz.open(filepath)
+        count = doc.page_count
+        doc.close()
+        return count
+    except Exception:
+        return 1

@@ -79,6 +79,11 @@ class ConfidenceStep(BaseStep):
         self.threshold_high = config.confidence.threshold_high
         self.max_retries = config.end_to_end_vlm.max_retries
 
+        from utils.confidence_calibration import get_calibration
+        self._cal = get_calibration()
+        self._ocr_w1, self._ocr_w2, self._ocr_w3 = self._cal.get_ocr_weights()
+        self._vlm_err_ded, self._vlm_warn_ded, self._vlm_fmt_ded = self._cal.get_vlm_deductions()
+
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
         for page in ctx.pages:
             if not page.extracted_fields:
@@ -269,13 +274,13 @@ class ConfidenceStep(BaseStep):
             for issue in field_issues:
                 sev = issue.get("severity", "warning")
                 if sev == "error":
-                    conf -= 0.3
+                    conf -= self._vlm_err_ded
                 else:
-                    conf -= 0.15
+                    conf -= self._vlm_warn_ded
 
             fmt = self._format_check(field_name, val_str)
             if fmt < 1.0:
-                conf -= 0.2
+                conf -= self._vlm_fmt_ded
 
             conf = max(0.0, round(conf, 3))
             level = "high" if conf >= self.threshold_high else "low" if conf < self.threshold_low else "medium"
@@ -349,7 +354,7 @@ class ConfidenceStep(BaseStep):
             sig2 = self._ocr_text_overlap(val_str, ocr_words)
             sig3 = self._format_check(field_name, val_str)
 
-            overall = round(0.4 * sig1 + 0.4 * sig2 + 0.2 * sig3, 3)
+            overall = round(self._ocr_w1 * sig1 + self._ocr_w2 * sig2 + self._ocr_w3 * sig3, 3)
             level = "high" if overall >= self.threshold_high else "low" if overall < self.threshold_low else "medium"
             needs_review = overall < self.threshold_low
 

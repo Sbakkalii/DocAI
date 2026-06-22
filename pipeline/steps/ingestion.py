@@ -157,17 +157,40 @@ class IngestionStep(BaseStep):
             return "long_document"
 
     @staticmethod
-    def _optimize_image(image_path: str, max_longest_side: int = 2048):
+    def _optimize_image(image_path: str, max_longest_side: int = 2048, doc_type: str = None):
         try:
-            from PIL import Image
+            from PIL import Image, ImageEnhance, ImageFilter
             img = Image.open(image_path)
             w, h = img.size
             longest = max(w, h)
-            if longest > max_longest_side:
-                ratio = max_longest_side / longest
+
+            doc_type = (doc_type or "").lower()
+
+            max_side = max_longest_side
+            if doc_type == "id_card":
+                max_side = max(max_longest_side, 1200)
+            elif doc_type in ("contract", "purchase_order"):
+                max_side = max_longest_side
+
+            if longest > max_side:
+                ratio = max_side / longest
                 new_w, new_h = int(w * ratio), int(h * ratio)
                 img = img.resize((new_w, new_h), Image.LANCZOS)
-                img.save(image_path, quality=95)
+
+            if doc_type in ("contract", "purchase_order"):
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.3)
+                img = img.filter(ImageFilter.SHARPEN)
+            elif doc_type == "id_card":
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.5)
+                img = img.filter(ImageFilter.SHARPEN)
+            elif doc_type == "bank_statement":
+                img = img.convert("L").convert("RGB")
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.2)
+
+            img.save(image_path, quality=95)
         except ImportError:
             pass
         except Exception:

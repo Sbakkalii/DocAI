@@ -96,12 +96,23 @@ class DocumentClassifierConfig(BaseModel):
 class EndToEndVLMConfig(BaseModel):
     enabled: bool = True
     model: str = "gemma3:4b"
+    provider: Literal["ollama", "vllm"] = "ollama"
+    vllm_url: str = "http://localhost:8000/v1"
+    guided_json: bool = True
     target_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
     ollama_host: str = "http://localhost:11434"
     max_retries: int = 2
     stream: bool = False
     max_concurrency: int = 2
     cache_enabled: bool = True
+
+
+class EnsembleVLMConfig(BaseModel):
+    enabled: bool = False
+    models: List[str] = Field(default_factory=lambda: ["gemma3:4b", "qwen2.5vl:3b"])
+    strategy: Literal["majority_vote", "confidence_weighted"] = "majority_vote"
+    max_concurrency: int = 4
+    timeout: int = 120
 
 
 class EmbeddingConfig(BaseModel):
@@ -166,6 +177,46 @@ class ValidationConfig(BaseModel):
     checks: List[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "ocr_evidence"]
     arithmetic_tolerance: float = 0.02
     required_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
+
+
+class ParallelStreamSplitterConfig(BaseModel):
+    enabled: bool = False
+    dpi: int = 300
+    max_dimension: int = 2048
+    temp_dir: str = "/tmp/cache"
+
+
+class PageLevelClassifierConfig(BaseModel):
+    enabled: bool = False
+    model: str = "gemma3:4b"
+    ollama_host: str = "http://localhost:11434"
+    confidence_threshold: float = 0.5
+
+
+class MapPhaseExtractionConfig(BaseModel):
+    enabled: bool = False
+    model: str = "gemma3:4b"
+    provider: Literal["ollama", "vllm"] = "ollama"
+    vllm_url: str = "http://localhost:8000/v1"
+    ollama_host: str = "http://localhost:11434"
+    max_concurrency: int = 3
+    cache_enabled: bool = True
+    temperature: float = 0.1
+    json_schema: bool = True
+
+
+class ReducePhaseStitchingConfig(BaseModel):
+    enabled: bool = False
+    model: str = "deepseek-coder-v2:16b"
+    ollama_host: str = "http://localhost:11434"
+    temperature: float = 0.0
+    max_retries: int = 2
+
+
+class GlobalValidationConfig(BaseModel):
+    enabled: bool = False
+    checks: List[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "merge_consistency"]
+    arithmetic_tolerance: float = 0.02
 
 
 class CrossPageConfig(BaseModel):
@@ -248,6 +299,11 @@ STEP_CONFIG_MAP: Dict[str, str] = {
     "retrieval": "retrieval",
     "rag": "rag",
     "llm_extraction": "llm_extraction",
+    "parallel_stream_splitter": "parallel_stream_splitter",
+    "page_level_classifier": "page_level_classifier",
+    "map_phase_extraction": "map_phase_extraction",
+    "reduce_phase_stitching": "reduce_phase_stitching",
+    "global_validation": "global_validation",
     "validation": "validation",
     "confidence_scoring": "confidence",
     "export": "export",
@@ -267,6 +323,11 @@ STEP_ORDER = [
     "document_graph",
     "table_extraction",
     "end_to_end_vlm",
+    "parallel_stream_splitter",
+    "page_level_classifier",
+    "map_phase_extraction",
+    "reduce_phase_stitching",
+    "global_validation",
     "embedding",
     "retrieval",
     "rag",
@@ -293,6 +354,12 @@ class PipelineConfig(BaseModel):
     hybrid_ocr: HybridOCRConfig = Field(default_factory=HybridOCRConfig)
     document_graph: DocumentGraphConfig = Field(default_factory=DocumentGraphConfig)
     end_to_end_vlm: EndToEndVLMConfig = Field(default_factory=EndToEndVLMConfig)
+    ensemble_vlm: EnsembleVLMConfig = Field(default_factory=EnsembleVLMConfig)
+    parallel_stream_splitter: ParallelStreamSplitterConfig = Field(default_factory=ParallelStreamSplitterConfig)
+    page_level_classifier: PageLevelClassifierConfig = Field(default_factory=PageLevelClassifierConfig)
+    map_phase_extraction: MapPhaseExtractionConfig = Field(default_factory=MapPhaseExtractionConfig)
+    reduce_phase_stitching: ReducePhaseStitchingConfig = Field(default_factory=ReducePhaseStitchingConfig)
+    global_validation: GlobalValidationConfig = Field(default_factory=GlobalValidationConfig)
     table_extraction: TableExtractionConfig = Field(default_factory=TableExtractionConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
@@ -385,7 +452,45 @@ class PipelineConfig(BaseModel):
             retrieval=RetrievalConfig(enabled=False),
             rag=RAGConfig(enabled=False),
             llm_extraction=LLMExtractionConfig(enabled=False),
+            parallel_stream_splitter=ParallelStreamSplitterConfig(enabled=False),
+            page_level_classifier=PageLevelClassifierConfig(enabled=False),
+            map_phase_extraction=MapPhaseExtractionConfig(enabled=False),
+            reduce_phase_stitching=ReducePhaseStitchingConfig(enabled=False),
+            global_validation=GlobalValidationConfig(enabled=False),
             validation=ValidationConfig(enabled=True),
+            confidence=ConfidenceConfig(enabled=False),
+            cross_page=CrossPageConfig(enabled=False),
+            knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
+            evaluation=EvaluationConfig(enabled=True),
+            multi_task=MultiTaskConfig(enabled=True, model="qwen2.5:7b-instruct-q4_K_M"),
+        )
+        for key, value in overrides.items():
+            if hasattr(config, key):
+                setattr(config, key, value)
+        return config
+
+    @classmethod
+    def for_multi_page_vlm(cls, **overrides) -> "PipelineConfig":
+        """Track B: Multi-page VLM Map-Reduce pipeline."""
+        config = cls(
+            ingestion=IngestionConfig(enabled=True, max_pages=200),
+            ocr=OCRConfig(enabled=False),
+            vision_ocr=VisionOCRConfig(enabled=False),
+            hybrid_ocr=HybridOCRConfig(enabled=False),
+            document_graph=DocumentGraphConfig(enabled=False),
+            end_to_end_vlm=EndToEndVLMConfig(enabled=False),
+            document_classifier=DocumentClassifierConfig(enabled=False),
+            table_extraction=TableExtractionConfig(enabled=False),
+            embedding=EmbeddingConfig(enabled=False),
+            retrieval=RetrievalConfig(enabled=False),
+            rag=RAGConfig(enabled=False),
+            llm_extraction=LLMExtractionConfig(enabled=False),
+            parallel_stream_splitter=ParallelStreamSplitterConfig(enabled=True),
+            page_level_classifier=PageLevelClassifierConfig(enabled=True),
+            map_phase_extraction=MapPhaseExtractionConfig(enabled=True),
+            reduce_phase_stitching=ReducePhaseStitchingConfig(enabled=True),
+            global_validation=GlobalValidationConfig(enabled=True),
+            validation=ValidationConfig(enabled=False),
             confidence=ConfidenceConfig(enabled=False),
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
