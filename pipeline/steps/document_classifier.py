@@ -245,7 +245,7 @@ class DocumentTypeClassifierStep(BaseStep):
                 else self.config.vision_ocr.ollama_host
             )
             client = ollama.AsyncClient(host=host)
-            model = self.config.end_to_end_vlm.model if self.config.end_to_end_vlm.enabled else "gemma3:4b"
+            model = self.config.end_to_end_vlm.model if self.config.end_to_end_vlm.enabled else "phi3:mini"
 
             with open(image_path, "rb") as f:
                 img_b64 = base64.b64encode(f.read()).decode("utf-8")

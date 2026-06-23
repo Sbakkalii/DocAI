@@ -122,7 +122,7 @@ async def list_ollama_models():
         models = []
         for m in response.get("models", []):
             models.append({
-                "name": m.get("name", ""),
+                "name": m.get("model", ""),
                 "size": m.get("size", 0),
                 "size_gb": round(m.get("size", 0) / (1024**3), 2),
                 "modified": m.get("modified_at", ""),
@@ -302,7 +302,7 @@ async def load_dataset_document(path: str = Form(...), filename: str = Form(""),
 
 
 @app.post("/api/session/{session_id}/config")
-async def update_session_config(session_id: str, mode: str = Form(""), target_fields: str = Form(""), model: str = Form(""), vlm_model: str = Form("")):
+async def update_session_config(session_id: str, mode: str = Form(""), target_fields: str = Form(""), model: str = Form(""), vlm_model: str = Form(""), ocr_engine: str = Form("")):
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -314,7 +314,8 @@ async def update_session_config(session_id: str, mode: str = Form(""), target_fi
     mode_val = mode if mode else job.mode
     model_val = model if model else None
     vlm_model_val = vlm_model if vlm_model else None
-    job.update_config(mode_val, field_list, model_val, vlm_model_val)
+    ocr_engine_val = ocr_engine if ocr_engine else None
+    job.update_config(mode_val, field_list, model_val, vlm_model_val, ocr_engine_val)
     return {
         "session_id": session_id,
         "mode": job.mode,
@@ -359,6 +360,7 @@ def get_status(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
     return {
         "session_id": session_id,
+        "mode": job.mode,
         "status": job.status,
         "elapsed": round(job.elapsed, 2),
         "progress": job.progress,
@@ -366,6 +368,7 @@ def get_status(session_id: str):
         "waiting_for_input": job.waiting_for_input,
         "available_steps": job.available_steps,
         "completed_steps": list(job._completed_steps) if hasattr(job, "_completed_steps") else [],
+        "registered_steps": list(job._step_map.keys()) if hasattr(job, "_step_map") else [],
     }
 
 
@@ -553,20 +556,10 @@ def list_models():
     return {"models": AVAILABLE_MODELS}
 
 
-@app.get("/api/ollama/models")
-async def list_ollama_models():
-    """Dynamically list installed Ollama models."""
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get("http://localhost:11434/api/tags")
-            if resp.status_code == 200:
-                data = resp.json()
-                models = [m["name"] for m in data.get("models", [])]
-                return {"models": sorted(models)}
-            return {"models": AVAILABLE_MODELS, "error": f"Ollama returned {resp.status_code}"}
-    except Exception as e:
-        return {"models": AVAILABLE_MODELS, "error": str(e)}
+@app.get("/api/ocr/engines")
+def list_ocr_engines():
+    """Return available OCR engine options."""
+    return {"engines": ["rapidocr", "tesseract"]}
 
 
 @app.get("/api/embedding/models")
@@ -575,6 +568,7 @@ def list_embedding_models():
     return {
         "models": [
             {"id": "e5", "name": "multilingual-e5-small", "provider": "sentence-transformers"},
+            {"id": "e5-small-v2", "name": "e5-small-v2", "provider": "sentence-transformers"},
             {"id": "minilm", "name": "all-MiniLM-L6-v2", "provider": "sentence-transformers"},
             {"id": "bert", "name": "bert-base-uncased", "provider": "transformers"},
         ]
@@ -780,7 +774,7 @@ async def default_qa_prompt(session_id: str):
                 fields_summary.append(f"  {k}: {v}")
 
     lines = [
-        f"You are a precise QA assistant for a {doc_type} document.",
+        f"You are Ace, a friendly document QA assistant for a {doc_type} document. Respond with short, enthusiastic answers. Start each response with a brief acknowledgment (like 'Got it!', 'Sure thing!', 'Here you go!') then give the answer.",
         f"This document contains the following extracted fields:",
         *fields_summary[:30],
     ]
@@ -794,7 +788,8 @@ async def default_qa_prompt(session_id: str):
         "1. ALWAYS append the FIELD NAME in ALL CAPS in parentheses after every value you cite.",
         '   ✓ Correct: "The total is 24,120.00 (TOTAL)"',
         "2. If you're unsure or data is missing, say so. Never fabricate field names.",
-        "3. Answer in the user's language. Be concise but conversational.",
+        "3. Answer in the user's language. Be concise (3-4 sentences max) but conversational.",
+        "4. Start each response with a brief acknowledgment like 'Got it!', 'Sure thing!', or 'Here you go!'.",
     ])
     return {"prompt": "\n".join(lines)}
 
@@ -802,7 +797,7 @@ async def default_qa_prompt(session_id: str):
 @app.get("/api/qa/models")
 async def list_qa_models():
     """Return available text-only LLM models for QA (filters out VLMs)."""
-    VLM_PREFIXES = ("gemma3", "qwen2.5vl", "deepseek-ocr", "llava", "bakllava", "minicpm")
+    VLM_PREFIXES = ("gemma3", "deepseek-ocr", "llava", "bakllava", "minicpm")
     try:
         import httpx
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -911,7 +906,7 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
     if not model_name:
         try:
             import httpx
-            VLM_PREFIXES = ("gemma3", "qwen2.5vl", "deepseek-ocr", "llava", "bakllava", "minicpm")
+            VLM_PREFIXES = ("gemma3", "deepseek-ocr", "llava", "bakllava", "minicpm")
             async with httpx.AsyncClient(timeout=3.0) as client:
                 resp = await client.get("http://localhost:11434/api/tags")
                 if resp.status_code == 200:
@@ -923,11 +918,11 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
             pass
 
     if not model_name:
-        model_name = "llama3.2:3b-instruct-q4_K_M"
+        model_name = "phi3:mini"
 
     custom_prompt = body.get("system_prompt", "").strip()
 
-    system_prompt = custom_prompt if custom_prompt else "You are a precise document QA assistant. Answer using ONLY the extracted fields and OCR text provided. Always cite FIELD NAMES in ALL CAPS in parentheses after every value. Never fabricate data."
+    system_prompt = custom_prompt if custom_prompt else "You are Ace, a friendly document QA assistant. Answer using ONLY the extracted fields and OCR text provided. Always cite FIELD NAMES in ALL CAPS in parentheses after every value. Never fabricate data. Keep responses brief and enthusiastic."
 
     try:
         from ollama import AsyncClient
@@ -964,7 +959,7 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
 async def batch_evaluation(body: dict):
     """Run batch evaluation on N dataset documents and return aggregate metrics."""
     mode = body.get("mode", "hybrid")
-    model_name = body.get("model", "qwen2.5:7b-instruct-q4_K_M")
+    model_name = body.get("model", "phi3:mini")
     embedding_model = body.get("embedding_model", "e5")
     num_docs = min(int(body.get("num_docs", 10)), 200)
     target_fields = body.get("target_fields", None)
@@ -1190,5 +1185,9 @@ def review_approve(doc_id: str):
 
 
 if __name__ == "__main__":
+    import sys
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    default_addr = f"0.0.0.0:{os.environ.get('APP_PORT', '8000')}"
+    addr = sys.argv[1] if len(sys.argv) > 1 else default_addr
+    host, port = addr.rsplit(":", 1)
+    uvicorn.run(app, host=host, port=int(port), log_level="info")

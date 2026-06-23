@@ -16,7 +16,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { QAMessage } from './QAMessage'
 import { PipelineSidebar } from './PipelineSidebar'
 import { StepInfoTooltip } from './StepInfoTooltip'
-import { DEFAULT_FIELDS, STEP_LABELS, STEP_ORDER, STEP_GROUPS, getPreprocSteps, getEnabledSteps, fmtTime, DEFAULT_QA_PROMPT, METRIC_INFO, CATEGORY_METRICS, getDownstream, MULTI_TASK_TASK_OPTIONS, AVAILABLE_VLM_MODELS } from './constants'
+import { DEFAULT_FIELDS, STEP_LABELS, STEP_ORDER, STEP_GROUPS, getPreprocSteps, getEnabledSteps, fmtTime, DEFAULT_QA_PROMPT, QA_QUICK_OPTIONS, METRIC_INFO, CATEGORY_METRICS, getDownstream, MULTI_TASK_TASK_OPTIONS, AVAILABLE_VLM_MODELS } from './constants'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -105,6 +105,17 @@ export function StepCard({
       {isDone && step?.elapsed != null && (
         <span className="text-xs text-text-muted tabular-nums shrink-0">{fmtTime(step.elapsed)}</span>
       )}
+      {(name === 'end_to_end_vlm' || name === 'map_phase_extraction' || name === 'document_graph' || name === 'llm_extraction') && isDone && step?.data && (() => {
+        const d = step.data as Record<string, unknown>
+        const timing = d.timing as Record<string, unknown> | undefined
+        if (!timing) return null
+        return (
+          <span className="text-[10px] text-accent-violet/60 tabular-nums shrink-0 font-mono"
+            title={`API time: ${String(timing.total_api_time)}s, Tokens: ${String(timing.total_est_tokens)}`}>
+            {String(timing.avg_throughput)} t/s
+          </span>
+        )
+      })()}
 
       <Button variant="ghost" size="icon-sm" onClick={e => {
           e.stopPropagation()
@@ -321,7 +332,7 @@ function DataCardHybridOCR({ page }: { page: Record<string, unknown> | undefined
   const hybridUsed = page?.hybrid_used as boolean
   const displayContent = showFull ? markdown : markdown.slice(0, 3000)
   return (
-    <SectionCard title="Hybrid OCR (PaddleOCR + VLM)">
+    <SectionCard title="Hybrid OCR (RapidOCR + VLM)">
       <div className="flex items-center justify-between px-5 py-2.5 border-b border-border bg-bg-elevated/50">
         <div className="flex items-center gap-2 text-xs text-text-muted">
           {hybridUsed && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-accent-green/10 text-accent-green text-xs font-medium">VLM overlay</span>}
@@ -968,7 +979,8 @@ export function PipelineStepDataView({ stepName, data, onFieldSelect, sessionId 
     case 'vision_ocr': return <DataCardVisionOCR page={page} />
     case 'hybrid_ocr': return <DataCardHybridOCR page={page} />
     case 'document_graph': return <DataCardDocGraph page={page} />
-    case 'end_to_end_vlm': return <DataCardE2EVLM page={page} />
+    case 'end_to_end_vlm':
+    case 'map_phase_extraction': return <DataCardE2EVLM page={page} />
     case 'document_classifier': return <DataCardDocClassifier data={data} />
     case 'embedding': return <DataCardEmbedding data={data} />
     case 'retrieval': return <DataCardRetrieval page={page} />
@@ -1126,7 +1138,7 @@ export function PipelineView({
   useEffect(() => { if (prevSessionRef.current !== sessionId) { partialBuilt.current = false; prevSessionRef.current = sessionId } })
   useEffect(() => {
     if (resultsData || resultReady || partialBuilt.current) return
-    const vlmStep = steps['end_to_end_vlm']
+    const vlmStep = steps['end_to_end_vlm'] || steps['map_phase_extraction'] || steps['llm_extraction']
     if (vlmStep?.status !== 'completed' || !vlmStep?.data) return
     const vlmData = vlmStep.data as Record<string, unknown>
     const vlmPages = (vlmData.pages as Array<Record<string, unknown>> | undefined) || []
@@ -1208,10 +1220,24 @@ export function PipelineView({
   const [embeddingModels, setEmbeddingModels] = useState<Array<{id: string; name: string; provider: string}>>([])
   const [currentEmbeddingModel, setCurrentEmbeddingModel] = useState('e5')
   const [currentVlmModel, setCurrentVlmModel] = useState('gemma3:4b')
+  const [currentOcrEngine, setCurrentOcrEngine] = useState('rapidocr')
+  const [ocrEngines, setOcrEngines] = useState<string[]>(['rapidocr', 'tesseract'])
 
   useEffect(() => {
     fetch('/api/embedding/models').then(r => r.json()).then(d => { if (d.models?.length) setEmbeddingModels(d.models) }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    fetch('/api/ocr/engines').then(r => r.json()).then(d => { if (d.engines?.length) setOcrEngines(d.engines) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!sessionId) return
+    const form = new FormData()
+    form.append('ocr_engine', currentOcrEngine)
+    fetch(`/api/session/${sessionId}/config`, { method: 'POST', body: form })
+      .catch(() => {})
+  }, [currentOcrEngine, sessionId])
 
   const enabledSteps = getEnabledSteps(currentMode)
   const enabledSet = new Set(enabledSteps)
@@ -1252,6 +1278,7 @@ export function PipelineView({
     form.append('mode', mode)
     form.append('target_fields', selectedFields.join(','))
     form.append('vlm_model', currentVlmModel)
+    form.append('ocr_engine', currentOcrEngine)
     const res = await fetch(`/api/session/${sessionId}/config`, { method: 'POST', body: form })
     if (!res.ok) console.error('Mode change failed', await res.text())
   }
@@ -1281,6 +1308,7 @@ export function PipelineView({
     form.append('mode', currentMode)
     form.append('target_fields', fields.join(','))
     form.append('vlm_model', currentVlmModel)
+    form.append('ocr_engine', currentOcrEngine)
     const res = await fetch(`/api/session/${sessionId}/config`, { method: 'POST', body: form })
     if (!res.ok) console.error('Fields update failed', await res.text())
   }
@@ -1363,6 +1391,7 @@ export function PipelineView({
         if (res.status === 404) { setError('Session expired.'); cleanup(); return }
         if (res.ok) {
           const data = await res.json()
+          if (data.mode && data.mode !== currentMode) setCurrentMode(data.mode)
           if (data.status === 'completed' && !fetchedResult.current && !resultReady) { fetchedResult.current = true; pollForResult(); return }
           if (data.status === 'failed') { setError(data.error || 'Pipeline failed'); cleanup(); return }
           if (data.status === 'stopped') { setWaiting(true); setRunningStep(null) }
@@ -1439,6 +1468,7 @@ export function PipelineView({
   const qaEndRef = useRef<HTMLDivElement>(null)
   const qaMessagesRef = useRef(qaMessages)
   qaMessagesRef.current = qaMessages
+  const aceGreetedRef = useRef(false)
   const [correctionEdits, setCorrectionEdits] = useState<Record<string, string>>({})
   const [correctionStatus, setCorrectionStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [confirmedFields, setConfirmedFields] = useState<Set<string>>(new Set())
@@ -1463,8 +1493,8 @@ export function PipelineView({
     }
   }
 
-  const sendQuestion = useCallback(async () => {
-    const q = qaInput.trim()
+  const sendQuestion = useCallback(async (question?: string) => {
+    const q = (question || qaInput).trim()
     if (!q || qaLoading) return
     setQaInput('')
     const prevMessages = qaMessagesRef.current
@@ -1514,6 +1544,15 @@ export function PipelineView({
       fetch(`/api/qa/default-prompt/${sessionId}`).then(r => r.json()).then(d => {
         if (d.prompt) setQaSystemPrompt(d.prompt)
       }).catch(() => {})
+      if (!aceGreetedRef.current) {
+        aceGreetedRef.current = true
+        setQaMessages([
+          {
+            role: 'assistant',
+            content: `Hey! I'm Ace, here to help make sense of this document. 👋\n\nI can answer questions about the extracted fields, check validation details, or summarize what's in here. What are we working on?`,
+          },
+        ])
+      }
     }
   }, [sessionId, qaOpen])
 
@@ -1530,7 +1569,10 @@ export function PipelineView({
   const qaPanel = sessionId && qaOpen && steps['evaluation']?.status === 'completed' && (
         <div className="fixed bottom-4 right-4 w-[36rem] h-[42rem] bg-bg-surface border border-border rounded-2xl shadow-2xl flex flex-col overflow-hidden z-50 animate-scale-in">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-            <span className="text-sm font-semibold text-text-primary">Ask about this document</span>
+            <div className="flex items-center gap-2">
+              <span className="w-6 h-6 rounded-full bg-gradient-to-br from-accent-violet to-purple-500 flex items-center justify-center text-white text-[10px] font-bold">A</span>
+              <span className="text-sm font-semibold text-text-primary">Ask Ace</span>
+            </div>
             <div className="flex items-center gap-2">
               {qaModels.length > 0 && (
                 <select value={qaModel} onChange={e => setQaModel(e.target.value)}
@@ -1559,25 +1601,39 @@ export function PipelineView({
             </div>
           )}
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {qaMessages.length === 0 && (
+              {qaMessages.length === 0 ? (
               <div className="text-xs text-text-muted text-center mt-12">
                 Ask questions like:<br/>
                 "What is the total amount?"<br/>
                 "Who is the supplier?"<br/>
                 "What is the invoice date?"
               </div>
+            ) : (
+              <>
+                {qaMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                      msg.role === 'user'
+                        ? 'bg-accent-violet/20 text-accent-violet border border-accent-violet/30'
+                        : 'bg-bg-elevated text-text-muted border border-border/50'
+                    }`}>
+                      <QAMessage content={msg.content} evidence={msg.evidence} onFieldClick={handleQaFieldClick} />
+                    </div>
+                  </div>
+                ))}
+                {qaMessages.filter(m => m.role === 'user').length === 0 && qaMessages.length > 0 && (
+                  <div className="flex flex-wrap gap-2 justify-center pt-1">
+                    {QA_QUICK_OPTIONS.map(opt => (
+                      <button key={opt}
+                        onClick={() => sendQuestion(opt)}
+                        className="px-3 py-1.5 rounded-full text-xs font-medium bg-accent-violet/10 text-accent-violet border border-accent-violet/20 hover:bg-accent-violet/20 hover:border-accent-violet/40 transition-all">
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
-            {qaMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-accent-violet/20 text-accent-violet border border-accent-violet/30'
-                    : 'bg-bg-elevated text-text-muted border border-border/50'
-                }`}>
-                  <QAMessage content={msg.content} evidence={msg.evidence} onFieldClick={handleQaFieldClick} />
-                </div>
-              </div>
-            ))}
             {qaLoading && (
               <div className="flex justify-start">
                 <div className="bg-bg-elevated text-text-muted px-3 py-2 rounded-xl text-sm border border-border/50 flex items-center gap-2">
@@ -1594,7 +1650,7 @@ export function PipelineView({
                 type="text"
                 value={qaInput}
                 onChange={e => setQaInput(e.target.value)}
-                placeholder="Ask a question..."
+                placeholder={qaMessages.length === 0 ? 'Ask Ace a question...' : 'Follow up...'}
                 disabled={qaLoading}
                 className="flex-1 bg-bg-base text-sm text-text-primary placeholder-text-muted px-3 py-2 rounded-xl border border-border focus:border-accent-violet focus:ring-1 focus:ring-accent-violet/30 outline-none transition-all disabled:opacity-50"
               />
@@ -1615,6 +1671,24 @@ export function PipelineView({
   }, [selectedStep, steps.ocr?.data])
 
   const ocrBlocks = useMemo(() => ocrParsedOutput ? getOcrBlocks(ocrParsedOutput) : [], [ocrParsedOutput])
+
+  const graphBlocks = useMemo(() => {
+    if (selectedStep !== 'document_graph' || !steps.document_graph?.data) return []
+    const data = steps.document_graph.data as Record<string, unknown>
+    const pages = (data.pages as Array<Record<string, unknown>> | undefined) || []
+    const blocks: Array<{ page: number; id: string; label: string; x0: number; y0: number; x1: number; y1: number }> = []
+    for (const p of pages) {
+      const graph = p.graph as Record<string, unknown> | undefined
+      const nodes = (graph?.nodes as Array<Record<string, unknown>> | undefined) || []
+      for (const n of nodes) {
+        const bbox = n.bbox as [number, number, number, number] | undefined
+        if (bbox) {
+          blocks.push({ page: p.page_number as number, id: n.id as string, label: n.label as string, x0: bbox[0], y0: bbox[1], x1: bbox[2], y1: bbox[3] })
+        }
+      }
+    }
+    return blocks
+  }, [selectedStep, steps.document_graph?.data])
 
   const [activeOcrBlockId, setActiveOcrBlockId] = useState<string | undefined>(undefined)
 
@@ -1639,6 +1713,9 @@ export function PipelineView({
         currentEmbeddingModel={currentEmbeddingModel} setCurrentEmbeddingModel={setCurrentEmbeddingModel}
         currentVlmModel={currentVlmModel} setCurrentVlmModel={setCurrentVlmModel}
         vlmModels={AVAILABLE_VLM_MODELS}
+        currentOcrEngine={currentOcrEngine} setCurrentOcrEngine={setCurrentOcrEngine}
+        ocrEngines={ocrEngines}
+        resultsData={resultsData} selectedStep={selectedStep} onSelectStep={onSelectStep}
         progressPct={progressPct} completedCount={completedCount} totalSteps={totalSteps}
       />
       {!sidebarOpen && (
@@ -1687,31 +1764,7 @@ export function PipelineView({
                       runStep={runStep} stopPipeline={stopPipeline}
                     />
                   ))}
-                  {group.label === 'Evaluation' && (resultsData || steps['end_to_end_vlm']?.status === 'completed' || steps['llm_extraction']?.status === 'completed') && (
-                    <div
-                      onClick={() => onSelectStep(selectedStep === '__results__' ? null : '__results__')}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer shrink-0 group ${
-                        selectedStep === '__results__'
-                          ? 'border-accent-violet/40 bg-accent-violet/12 ring-1 ring-accent-violet/30 border-l-accent-violet border-l-2'
-                          : 'border-border/40 bg-bg-surface/60 hover:bg-bg-elevated/60 border-l-[#16A34A]/60 border-l-2'
-                      } ${!resultsData ? 'opacity-60' : ''}`}>
-                      <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                        {resultsData ? (
-                          <HugeiconsIcon icon={CheckmarkCircleIcon} className="size-3.5 text-accent-green" />
-                        ) : (
-                          <HugeiconsIcon icon={Loading01Icon} className="size-3.5 animate-spin text-accent-violet" />
-                        )}
-                      </div>
-                      <span className={`text-xs font-medium truncate flex-1 ${resultsData ? 'text-text-primary' : 'text-accent-violet'}`}>
-                        {resultsData ? 'Results' : 'Processing…'}
-                      </span>
-                      {resultsData && (
-                        <span className="text-[10px] font-mono text-text-muted tabular-nums shrink-0">
-                          {resultsData.num_pages}p · {resultsData.total_time.toFixed(1)}s
-                        </span>
-                      )}
-                    </div>
-                  )}
+
                 </div>
               </div>
             )
@@ -1772,6 +1825,31 @@ export function PipelineView({
                           key={block.id}
                           block={block}
                           isActive={block.id === activeOcrBlockId}
+                        />
+                      ))
+                    }
+                  />
+                )
+              }
+              if (selectedStep === 'document_graph' && steps.document_graph?.data) {
+                return (
+                  <PDFViewer
+                    ref={viewerRef}
+                    file={pdfUrl}
+                    className="flex-1 min-h-0"
+                    showToolbar showDownload showRotateControls
+                    renderPageOverlay={({ pageNumber }) =>
+                      graphBlocks.filter(b => b.page === pageNumber).map(b => (
+                        <div
+                          key={b.id}
+                          className="pointer-events-none absolute z-10 border border-accent-violet/60 bg-accent-violet/5"
+                          style={{
+                            left: `${b.x0}px`,
+                            top: `${b.y0}px`,
+                            width: `${b.x1 - b.x0}px`,
+                            height: `${b.y1 - b.y0}px`,
+                          }}
+                          title={b.label}
                         />
                       ))
                     }

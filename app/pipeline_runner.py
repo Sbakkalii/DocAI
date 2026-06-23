@@ -20,7 +20,7 @@ Prereq = Union[str, tuple[str, ...]]
 # Prerequisites for each step (step can run when all prereqs are met)
 STEP_PREREQS: Dict[str, list[Prereq]] = {
     "ingestion": [],
-    "document_classifier": [("end_to_end_vlm", "llm_extraction")],
+    "document_classifier": ["ingestion"],
     "ocr": ["ingestion"],
     "vision_ocr": ["ingestion"],
     "hybrid_ocr": ["ingestion"],
@@ -31,10 +31,10 @@ STEP_PREREQS: Dict[str, list[Prereq]] = {
     "map_phase_extraction": ["page_level_classifier"],
     "reduce_phase_stitching": ["map_phase_extraction"],
     "global_validation": ["reduce_phase_stitching"],
-    "embedding": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
+    "embedding": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph", "end_to_end_vlm"), "document_classifier"],
     "retrieval": ["embedding"],
     "rag": ["embedding"],
-    "llm_extraction": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph")],
+    "llm_extraction": [("ocr", "vision_ocr", "hybrid_ocr", "document_graph", "end_to_end_vlm"), "document_classifier", "rag"],
     "vendor_lookup": [("end_to_end_vlm", "llm_extraction")],
     "validation": [("end_to_end_vlm", "llm_extraction", "vendor_lookup")],
     "anomaly": [("global_validation", "validation")],
@@ -183,8 +183,8 @@ class PipelineJob:
         if enabled:
             self._continue_event.set()
 
-    def update_config(self, mode: str, target_fields: Optional[list[str]] = None, model: Optional[str] = None, vlm_model: Optional[str] = None):
-        """Change the pipeline mode, target fields, LLM model, or VLM model after upload."""
+    def update_config(self, mode: str, target_fields: Optional[list[str]] = None, model: Optional[str] = None, vlm_model: Optional[str] = None, ocr_engine: Optional[str] = None):
+        """Change the pipeline mode, target fields, LLM model, VLM model, or OCR engine after upload."""
         if mode != self.mode:
             new_config_fn = getattr(self.config.__class__, f'for_{mode}', None)
             if new_config_fn:
@@ -205,6 +205,10 @@ class PipelineJob:
         if vlm_model:
             self.config.end_to_end_vlm.model = vlm_model
             self.config.vision_ocr.model = vlm_model
+            self.config.page_level_classifier.model = vlm_model
+            self.config.map_phase_extraction.model = vlm_model
+        if ocr_engine:
+            self.config.ocr.engine = ocr_engine
 
         self._orchestrator = PipelineOrchestrator(self.config)
         self._step_map = {s.name: s for s in self._orchestrator.steps}
@@ -695,6 +699,8 @@ async def start_pipeline(
                 config_mode = "multi_page_vlm"
             else:
                 config = PipelineConfig.for_end_to_end()
+        elif config_mode == "multi_page_vlm":
+            config = PipelineConfig.for_multi_page_vlm()
         elif config_mode == "hybrid":
             config = PipelineConfig.for_hybrid()
         elif config_mode == "graph":
@@ -721,6 +727,7 @@ async def start_pipeline(
 
     if enable_all and config_mode not in ("end_to_end", "multi_page_vlm"):
         config.cross_page.enabled = True
+        config.knowledge_graph.enabled = True
 
     if step_overrides:
         for step_name, settings in step_overrides.items():

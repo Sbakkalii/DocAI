@@ -1,7 +1,7 @@
 """
 Step 3b: VLM OCR (optional, alternative to traditional OCR)
 
-Uses a quantized VLM (gemma3:4b) via Ollama to read text from invoice
+    Uses a quantized VLM (gemma3:4b) via Ollama to read text from invoice
 images. Provides better spacing and understanding than PaddleOCR/RapidOCR
 for complex layouts. An LLM post-correction pass fixes remaining spacing
 artifacts.

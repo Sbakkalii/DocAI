@@ -58,8 +58,9 @@ echo ""
 
 # ── Pull ML models ──────────────────────────────────────────────────────────
 echo -e "${YELLOW}[3/4] Pulling ML models (this downloads ~8 GB, may take a while)...${NC}"
-echo -e "  Extraction model: ${CYAN}qwen2.5:7b-instruct-q4_K_M${NC} (~4.7 GB)"
-echo -e "  VLM OCR model:    ${CYAN}gemma3:4b${NC} (~3.2 GB)"
+echo -e "  VLM:                  ${CYAN}gemma3:4b${NC} (~3.2 GB)"
+echo -e "  OCR VLM:              ${CYAN}deepseek-ocr${NC} (~3 GB)"
+echo -e "  Extraction LLM:       ${CYAN}phi3:mini${NC} (~2.5 GB)"
 echo ""
 
 docker compose --profile setup up model-puller

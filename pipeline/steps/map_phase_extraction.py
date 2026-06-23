@@ -92,8 +92,16 @@ class MapPhaseExtractionStep(BaseStep):
             f"If this page contains partial table rows (e.g., line items that continue from "
             f"the previous page), extract them anyway — they will be merged later.\n\n"
             f"Extract fields according to this schema:\n{schema_str}\n\n"
-            f"Respond with valid JSON only, matching the schema structure. "
-            f"Use null for missing values. Ensure line item arrays include ALL rows visible."
+            "Line item field meanings:\n"
+            "- description: the product/service name as written\n"
+            "- quantity: the count/number of units as written\n"
+            "- uom: unit of measure (pcs, hours, etc.) as written\n"
+            "- unit_price: the price PER SINGLE UNIT as written (do NOT multiply by quantity)\n"
+            "- sub_total: quantity × unit_price, if shown as a separate column; use null if not present\n\n"
+            "CRITICAL: Extract values EXACTLY as they appear in the document. "
+            "Do NOT calculate or transform values. unit_price is per-unit, NOT the line total.\n\n"
+            "Respond with valid JSON only, matching the schema structure. "
+            "Use null for missing values. Ensure line item arrays include ALL rows visible."
         )
 
     async def _vlm_extract(

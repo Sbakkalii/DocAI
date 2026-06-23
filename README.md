@@ -6,23 +6,117 @@
 
 A modular, local-first document intelligence pipeline for extracting structured data from invoices and business documents. Runs entirely with open-source LLMs — no API keys, no cloud dependency, no data leaving your machine.
 
-## Quick Start
-
-**Prerequisites:** Python 3.11+, [Ollama](https://ollama.com/) with pulled models (gemma3:4b, qwen2.5:7b, qwen2.5vl:3b, deepseek-ocr:3b).
+## Quick Start (Docker)
 
 ```bash
-# One-time setup: installs Python deps and pulls models
+# One-time setup: builds images and pulls ML models (~12 GB)
 ./setup.sh
 
-# Start the server
-python3 -m app.main
+# Start the application
+docker compose up -d
 
 # Open http://localhost:8000
 ```
 
 That's it. Upload an invoice → the pipeline extracts fields (NUMBER, SUPPLIER, ADDRESS, INVOICE_DATE, TOTAL, TOTAL_AMOUNT, line items...) → review and confirm results.
 
-> **First start** pulls ML models (gemma3:4b, qwen2.5:7b, etc.) via Ollama. This happens once during `./setup.sh`. On CPU, VLM inference takes 5-15 seconds per page.
+## Manual Setup (Local Dev)
+
+### Prerequisites
+
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| **Python** | 3.11+ | Backend (FastAPI) |
+| **Node.js** | 18+ | Frontend (React + Vite) |
+| **npm** | 9+ | Frontend package manager |
+| **Ollama** | latest | LLM/VLM inference engine |
+| **Docker** (optional) | latest | Containerized deployment |
+
+### 1. Clone & Environment
+
+```bash
+git clone <repo-url> && cd DocAI
+```
+
+**Option A — Conda/Miniconda (recommended):**
+
+```bash
+# Install Miniconda if you don't have it:
+#   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+#   bash Miniconda3-latest-Linux-x86_64.sh
+
+conda create -n docai python=3.11 -y
+conda activate docai
+```
+
+**Option B — venv:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Python Dependencies
+
+```bash
+pip install -r requirements.txt
+pip install ollama  # Ollama Python client
+```
+
+### 3. Install & Build Frontend
+
+```bash
+cd frontend
+npm install
+npm run build    # production build → served by FastAPI
+# OR for development (separate dev server on :5173):
+# npm run dev
+cd ..
+```
+
+### 4. Install Ollama
+
+```bash
+# Linux / macOS
+curl -fsSL https://ollama.com/install.sh | sh
+
+# macOS (Homebrew)
+# brew install ollama
+
+# Start Ollama (if not running as a service)
+ollama serve &
+```
+
+### 5. Pull ML Models
+
+```bash
+# VLM (primary)
+ollama pull gemma3:4b
+
+# OCR VLM (alternative)
+ollama pull deepseek-ocr
+
+# Field extraction & stitching LLM
+ollama pull phi3:mini
+```
+
+### 6. Configure Environment
+
+```bash
+cp .env.example .env
+# Edit .env if needed:
+#   APP_PORT=8000
+#   OLLAMA_HOST=http://localhost:11434
+```
+
+### 7. Start the Application
+
+```bash
+python3 -m app.main
+# Open http://localhost:8000
+```
+
+> **Note:** On CPU, VLM inference takes 5-15 seconds per page. A GPU (NVIDIA RTX 3000+ with 6 GB+ VRAM) reduces this to 1-3 s/page.
 
 ## Pipeline Architecture — Dual-Track Router
 
@@ -150,7 +244,7 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 | 2 | `parallel_stream_splitter` | **Lazily renders** each PDF page to temp PNG at 300 DPI in `/tmp/cache/`. Uses `asyncio.Semaphore(2)` to limit concurrent rendering. Stores paths in page metadata. No RAM spike — pages are rendered on demand |
 | 3 | `page_level_classifier` | Classifies each page's document type (INVOICE, DELIVERY_NOTE, PURCHASE_ORDER, etc.) using keyword heuristics + VLM fallback. Outputs a **type manifest** `{page_1: "INVOICE", page_2: "DELIVERY_NOTE"}` and contiguous page groups |
 | 4 | `map_phase_extraction` | **Map phase**: Runs VLM on each page independently with page-index context (`"Page X of Y — this is one PART of a multi-page document"`). Injects type-specific Pydantic JSON schema. Semaphore-limited concurrency. MD5-hashed response cache |
-| 5 | `reduce_phase_stitching` | **Reduce phase**: Sends array of per-page JSONs to a text-only LLM (`deepseek-coder-v2:16b`). Merges into a single master JSON: concatenates line items across pages, deduplicates overlapping rows (same description + quantity), sums subtotals, reconciles totals against extracted total |
+| 5 | `reduce_phase_stitching` | **Reduce phase**: Sends array of per-page JSONs to a text-only LLM (`phi3:mini`). Merges into a single master JSON: concatenates line items across pages, deduplicates overlapping rows (same description + quantity), sums subtotals, reconciles totals against extracted total |
 | 6 | `global_validation` | Runs validation on the stitched result. **Merge-consistency checks**: cross-page arithmetic, duplicate line item detection. **Agentic retry**: if validation fails, retries the reduce phase first (cheaper than re-running VLM), then falls back to re-running VLM |
 | 7 | `vendor_lookup` | Same as Track A — fuzzy-match supplier, enrich vendor profile |
 | 8 | `anomaly` | Same as Track A — duplicate detection, amount outliers, VAT sanity |
@@ -188,7 +282,7 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 | 4 | `embedding` | Embeds page text via `intfloat/multilingual-e5-small` (384-d) |
 | 5 | `retrieval` | BM25 + vector similarity search for few-shot examples |
 | 6 | `rag` | Builds context with retrieved examples and field rules |
-| 7 | `llm_extraction` | LLM (qwen2.5:7b) extracts fields with RAG context and few-shot prompting |
+| 7 | `llm_extraction` | LLM (phi3:mini) extracts fields with RAG context and few-shot prompting |
 | 8 | `document_classifier` | Classifies page type using extracted text. Routes target fields for validation |
 | 9 | `vendor_lookup` | Fuzzy-match supplier name. Enriches context with vendor profile (VAT, currency) for validation |
 | 10 | `validation` | Cross-field arithmetic + vendor-context checks. Required field completeness |
@@ -228,7 +322,7 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 | 4 | `embedding` | Embeds page text via `intfloat/multilingual-e5-small` (384-d) |
 | 5 | `retrieval` | BM25 + vector similarity search for few-shot examples |
 | 6 | `rag` | Builds context with retrieved examples and field rules |
-| 7 | `llm_extraction` | LLM (qwen2.5:7b) extracts fields from graph-reconstructed markdown |
+| 7 | `llm_extraction` | LLM (phi3:mini) extracts fields from graph-reconstructed markdown |
 | 8 | `document_classifier` | Classifies page type using graph-reconstructed text |
 | 9 | `vendor_lookup` | Fuzzy-match supplier name. Enriches context with vendor profile |
 | 10 | `validation` | Cross-field arithmetic + vendor-context checks |
@@ -241,7 +335,7 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 ### Key Features
 
 - **Private & local** — everything runs on your machine with open-source LLMs; no data ever leaves
-- **VLM-first extraction** — vision-language models (gemma3, qwen2.5vl, deepseek-ocr) extract fields directly from images in a single pass, bypassing traditional OCR pipelines
+- **VLM-first extraction** — vision-language models (gemma3, deepseek-ocr) extract fields directly from images in a single pass, bypassing traditional OCR pipelines
 - **Multi-VLM ensemble** — run multiple VLM models on each page and merge results via majority voting or confidence-weighted fusion. Configurable model list and voting strategy in `EnsembleVLMConfig`
 - **Dual-Track Router** — automatically routes 1-page documents to Track A (synchronous VLM) and multi-page documents to Track B (async Map-Reduce). Transparent to the user
 - **Page-level classification** — per-page document type detection for multi-page bundles (mixed invoice + delivery note), outputs type manifest + contiguous page groups
@@ -268,12 +362,16 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 
 ## Docker Deployment
 
-```bash
-# Standard start (after ./setup.sh)
-docker compose up -d
+The Docker setup bundles the FastAPI backend, built frontend, and Ollama inference engine in two containers.
 
-# With custom port
-APP_PORT=9000 docker compose up -d
+### 1. Full Setup (Recommended)
+
+```bash
+# One-time: builds app image + pulls all ML models (~12 GB download)
+./setup.sh
+
+# Start services
+docker compose up -d
 
 # View logs
 docker compose logs -f app
@@ -282,20 +380,40 @@ docker compose logs -f app
 docker compose down
 ```
 
+### 2. Pull Models Only
+
+```bash
+# Pull ML models without building the app image
+docker compose --profile setup run model-puller
+```
+
+### 3. Custom Port
+
+```bash
+APP_PORT=9000 docker compose up -d
+```
+
+### 4. Rebuild Frontend Assets
+
+```bash
+docker compose build app
+```
+
 ### Services
 
-| Service | Role | Resources |
-|---------|------|-----------|
-| **app** | FastAPI backend + built frontend | 2 GB RAM, 1 CPU reserved |
-| **ollama** | LLM/VLM inference (gemma3, qwen2.5) | 8 GB RAM, 2 CPU reserved |
+| Service | Image | Role | Resources |
+|---------|-------|------|-----------|
+| **app** | `Dockerfile` (multi-stage) | FastAPI backend + built React frontend | 4 GB limit, 2 GB reserved |
+| **ollama** | `ollama/ollama:latest` | LLM/VLM inference engine | 16 GB limit, 8 GB reserved |
 
 ### Volumes
 
-| Host path | Purpose |
-|-----------|---------|
-| `./output` | Pipeline results, uploads, corrections |
-| `./data` | Document datasets |
-| `./storage` | Embedding indices, caches |
+| Host path | Container mount | Purpose |
+|-----------|----------------|---------|
+| `./output` | `/app/output` | Pipeline results, uploads, corrections |
+| `./data` | `/app/data` | Document datasets for batch eval |
+| `./storage` | `/app/storage` | Embedding indices, caches, calibration data |
+| `ollama_data` (named) | `/root/.ollama` | Persisted ML model blobs |
 
 ## Hardware Requirements
 
@@ -375,12 +493,9 @@ utils/              Shared utilities
 | Model | Size | Role |
 |-------|------|------|
 | `gemma3:4b` | ~3.2 GB | Primary VLM extraction (Track A + Track B Map phase) |
-| `qwen2.5vl:3b` | ~3.5 GB | Alternative VLM for extraction |
-| `deepseek-ocr:latest` | ~3 GB | Specialized OCR VLM |
-| `deepseek-coder-v2:16b` | ~8 GB | Reduce phase stitching (LLM merges page JSONs) |
-| `qwen2.5:7b-instruct-q4_K_M` | ~4.7 GB | Multi-task NLP (NER, summary, contract, risk) |
-| `qwen2.5-coder:14b` | ~8 GB | Alternative reduce/merge LLM |
-| `llama3.2:3b-instruct-q4_K_M` | ~2 GB | Lightweight alternative |
+| `deepseek-ocr` | ~3 GB | Specialized OCR VLM (layout/table parsing) |
+| `phi3:mini` | ~2.5 GB | LLM stitching, multi-task NLP (NER, summary, contract, risk), & QA |
+| `llama3.2:3b-instruct-q4_K_M` | ~2 GB | Lightweight general fallback |
 | `intfloat/multilingual-e5-small` | ~80 MB | Text embeddings (384-d) |
 | PaddleOCR (CPU) | ~15 MB | Word detection + bounding boxes |
 
@@ -405,22 +520,22 @@ OLLAMA_HOST=http://localhost:11434
 
 ```python
 EndToEndVLMConfig(
-    model="gemma3:4b",           # Primary VLM model
-    temperature=0.1,             # Low temperature for deterministic output
-    max_retries=2,               # Agentic retry loop attempts
-    confidence_threshold=0.7,    # Below this → re-extract with hints
-    cache_enabled=True,          # MD5-hashed response cache
-    max_concurrent=2,            # Semaphore limit for parallel pages
-    provider="ollama",           # "ollama" or "vllm" for production
+    model="gemma3:4b",  # Primary VLM model
+    temperature=0.1,               # Low temperature for deterministic output
+    max_retries=2,                 # Agentic retry loop attempts
+    confidence_threshold=0.7,      # Below this → re-extract with hints
+    cache_enabled=True,            # MD5-hashed response cache
+    max_concurrent=2,              # Semaphore limit for parallel pages
+    provider="ollama",             # "ollama" or "vllm" for production
 )
 
 # Multi-VLM ensemble (disabled by default — enable for higher accuracy)
 EnsembleVLMConfig(
     enabled=False,
-    models=["gemma3:4b", "qwen2.5vl:3b"],  # Models to run in parallel
-    strategy="majority_vote",                # "majority_vote" or "confidence_weighted"
-    max_concurrency=4,                       # Max concurrent VLM calls
-    timeout=120,                             # Per-model timeout in seconds
+    models=["gemma3:4b", "deepseek-ocr"],  # Models to run in parallel
+    strategy="majority_vote",                                 # "majority_vote" or "confidence_weighted"
+    max_concurrency=4,                                        # Max concurrent VLM calls
+    timeout=120,                                              # Per-model timeout in seconds
 )
 ```
 
@@ -459,7 +574,7 @@ MapPhaseExtractionConfig(
 # Reduce phase LLM stitching
 ReducePhaseStitchingConfig(
     enabled=True,
-    model="deepseek-coder-v2:16b",
+    model="phi3:mini",
     temperature=0.0,
     max_retries=2,
 )

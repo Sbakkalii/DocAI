@@ -24,7 +24,7 @@ class OCRConfig(BaseModel):
 
 class VisionOCRConfig(BaseModel):
     enabled: bool = True
-    model: str = "depseek-ocr"
+    model: str = "gemma3:4b"
     provider: Literal["ollama"] = "ollama"
     post_correct: bool = True
     post_correct_model: str = "llama3.2:3b-instruct-q4_K_M"
@@ -78,12 +78,12 @@ DOCUMENT_TYPE_FIELDS: Dict[str, List[str]] = {
 
 # Recommended models per document type — auto-selected when classifier detects the category
 DOCUMENT_TYPE_RECOMMENDED_MODEL: Dict[str, str] = {
-    "invoice": "qwen2.5:7b",
-    "contract": "deepseek-r1:8b",
-    "purchase_order": "qwen2.5:7b",
-    "delivery_note": "qwen2.5:3b",
-    "bank_statement": "qwen2.5:7b",
-    "id_card": "qwen2.5:3b",
+    "invoice": "phi3:mini",
+    "contract": "phi3:mini",
+    "purchase_order": "phi3:mini",
+    "delivery_note": "llama3.2:1b",
+    "bank_statement": "phi3:mini",
+    "id_card": "llama3.2:1b",
 }
 
 
@@ -103,13 +103,13 @@ class EndToEndVLMConfig(BaseModel):
     ollama_host: str = "http://localhost:11434"
     max_retries: int = 2
     stream: bool = False
-    max_concurrency: int = 2
+    max_concurrency: int = 4
     cache_enabled: bool = True
 
 
 class EnsembleVLMConfig(BaseModel):
     enabled: bool = False
-    models: List[str] = Field(default_factory=lambda: ["gemma3:4b", "qwen2.5vl:3b"])
+    models: List[str] = Field(default_factory=lambda: ["gemma3:4b", "deepseek-ocr"])
     strategy: Literal["majority_vote", "confidence_weighted"] = "majority_vote"
     max_concurrency: int = 4
     timeout: int = 120
@@ -117,7 +117,7 @@ class EnsembleVLMConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     enabled: bool = True
-    model: Literal["e5", "bert", "minilm"] = "e5"
+    model: Literal["e5", "e5-small-v2", "bert", "minilm"] = "e5"
     device: str = "cpu"
     cache: bool = True
 
@@ -149,7 +149,7 @@ DEFAULT_TARGET_FIELDS = [
 class LLMExtractionConfig(BaseModel):
     enabled: bool = True
     provider: Literal["ollama", "vllm", "gemini", "openai"] = "ollama"
-    model: str = "qwen2.5:7b-instruct-q4_K_M"
+    model: str = "phi3:mini"
     temperature: float = 0.1
     max_tokens: int = 4096
     schema_name: str = "default"
@@ -159,16 +159,15 @@ class LLMExtractionConfig(BaseModel):
 
 
 AVAILABLE_MODELS: List[str] = [
-    "qwen2.5:7b-instruct-q4_K_M",
-    "qwen2.5-coder:14b",
-    "deepseek-coder-v2:16b",
+    "phi3:mini",
     "llama3.2:3b-instruct-q4_K_M",
+    "llama3.2:1b",
 ]
 
 AVAILABLE_VLM_MODELS: List[str] = [
     "gemma3:4b",
-    "qwen2.5vl:3b",
-    "deepseek-ocr:latest",
+    "deepseek-ocr",
+    "moondream",
 ]
 
 
@@ -207,7 +206,7 @@ class MapPhaseExtractionConfig(BaseModel):
 
 class ReducePhaseStitchingConfig(BaseModel):
     enabled: bool = False
-    model: str = "deepseek-coder-v2:16b"
+    model: str = "phi3:mini"
     ollama_host: str = "http://localhost:11434"
     temperature: float = 0.0
     max_retries: int = 2
@@ -274,7 +273,7 @@ MULTI_TASK_TASK_INFO = {
 
 class MultiTaskConfig(BaseModel):
     enabled: bool = False
-    model: str = "qwen2.5:7b-instruct-q4_K_M"
+    model: str = "phi3:mini"
     ollama_host: str = ""
     tasks: List[str] = Field(default_factory=lambda: list(MULTI_TASK_TASK_INFO.keys()))
 
@@ -322,6 +321,7 @@ STEP_ORDER = [
     "hybrid_ocr",
     "document_graph",
     "table_extraction",
+    "document_classifier",
     "end_to_end_vlm",
     "parallel_stream_splitter",
     "page_level_classifier",
@@ -332,9 +332,9 @@ STEP_ORDER = [
     "retrieval",
     "rag",
     "llm_extraction",
-    "document_classifier",
     "vendor_lookup",
     "validation",
+    "confidence_scoring",
     "anomaly",
     "multi_task",
     "export",
@@ -395,16 +395,21 @@ class PipelineConfig(BaseModel):
             hybrid_ocr=HybridOCRConfig(enabled=True),
             document_graph=DocumentGraphConfig(enabled=False),
             end_to_end_vlm=EndToEndVLMConfig(enabled=False),
+            document_classifier=DocumentClassifierConfig(enabled=True),
+            table_extraction=TableExtractionConfig(enabled=True),
             embedding=EmbeddingConfig(enabled=True),
             retrieval=RetrievalConfig(enabled=True, strategy="hybrid"),
             rag=RAGConfig(enabled=True),
             llm_extraction=LLMExtractionConfig(enabled=True),
             validation=ValidationConfig(enabled=True),
             confidence=ConfidenceConfig(enabled=True),
+            export=ExportConfig(enabled=True),
+            vendor_lookup=VendorLookupConfig(enabled=True),
+            anomaly=AnomalyConfig(enabled=True),
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
             evaluation=EvaluationConfig(enabled=True),
-            multi_task=MultiTaskConfig(enabled=True, model="qwen2.5:7b-instruct-q4_K_M"),
+            multi_task=MultiTaskConfig(enabled=True, model="phi3:mini"),
         )
         for key, value in overrides.items():
             if hasattr(config, key):
@@ -420,16 +425,21 @@ class PipelineConfig(BaseModel):
             hybrid_ocr=HybridOCRConfig(enabled=False),
             document_graph=DocumentGraphConfig(enabled=True),
             end_to_end_vlm=EndToEndVLMConfig(enabled=False),
+            document_classifier=DocumentClassifierConfig(enabled=True),
+            table_extraction=TableExtractionConfig(enabled=True),
             embedding=EmbeddingConfig(enabled=True),
             retrieval=RetrievalConfig(enabled=True, strategy="hybrid"),
             rag=RAGConfig(enabled=True),
             llm_extraction=LLMExtractionConfig(enabled=True),
             validation=ValidationConfig(enabled=True),
             confidence=ConfidenceConfig(enabled=True),
+            export=ExportConfig(enabled=True),
+            vendor_lookup=VendorLookupConfig(enabled=True),
+            anomaly=AnomalyConfig(enabled=True),
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
             evaluation=EvaluationConfig(enabled=True),
-            multi_task=MultiTaskConfig(enabled=True, model="qwen2.5:7b-instruct-q4_K_M"),
+            multi_task=MultiTaskConfig(enabled=True, model="phi3:mini"),
         )
         for key, value in overrides.items():
             if hasattr(config, key):
@@ -461,7 +471,7 @@ class PipelineConfig(BaseModel):
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
             evaluation=EvaluationConfig(enabled=True),
-            multi_task=MultiTaskConfig(enabled=True, model="qwen2.5:7b-instruct-q4_K_M"),
+            multi_task=MultiTaskConfig(enabled=True, model="phi3:mini"),
         )
         for key, value in overrides.items():
             if hasattr(config, key):
@@ -494,7 +504,7 @@ class PipelineConfig(BaseModel):
             cross_page=CrossPageConfig(enabled=False),
             knowledge_graph=KnowledgeGraphConfig(enabled=False, scope="page"),
             evaluation=EvaluationConfig(enabled=True),
-            multi_task=MultiTaskConfig(enabled=True, model="qwen2.5:7b-instruct-q4_K_M"),
+            multi_task=MultiTaskConfig(enabled=True, model="phi3:mini"),
         )
         for key, value in overrides.items():
             if hasattr(config, key):
@@ -510,7 +520,6 @@ class PipelineConfig(BaseModel):
         config = cls.for_graph(**overrides)
         config.ingestion.max_pages = 200
         config.cross_page.enabled = True
-        config.knowledge_graph.enabled = True
         config.knowledge_graph.enabled = True
         config.knowledge_graph.scope = "document"
         for key, value in overrides.items():

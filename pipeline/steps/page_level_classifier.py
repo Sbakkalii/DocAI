@@ -52,11 +52,6 @@ class PageLevelClassifierStep(BaseStep):
 
                 detected_type, confidence = self._keyword_classify(page_text)
 
-                if confidence < self.confidence_threshold and img_path and Path(img_path).exists():
-                    vlm_type, vlm_conf = await self._vlm_classify(img_path, page_text)
-                    if vlm_conf > confidence:
-                        detected_type, confidence = vlm_type, vlm_conf
-
                 page.page_type = detected_type
                 page.page_type_confidence = confidence
                 page_types[page.page_number] = detected_type
@@ -101,7 +96,14 @@ class PageLevelClassifierStep(BaseStep):
 
     async def _vlm_classify(self, img_path: str, page_text: str) -> tuple[str, float]:
         try:
+            import base64
+            import json
+            import re
             from ollama import AsyncClient
+
+            with open(img_path, "rb") as f:
+                img_bytes = f.read()
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
             prompt = (
                 "You are a document page classifier. Given this image of a page, "
@@ -115,13 +117,20 @@ class PageLevelClassifierStep(BaseStep):
             client = AsyncClient(host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
             resp = await client.chat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": prompt, "images": [img_b64]}],
                 options={"temperature": 0.0, "num_predict": 128},
             )
             raw = resp["message"]["content"].strip()
-            import json
-            result = json.loads(raw)
-            return result.get("type", "UNKNOWN"), float(result.get("confidence", 0.0))
+
+            for candidate in (raw, re.sub(r'^.*?(\{.*\}).*$', r'\1', raw, flags=re.DOTALL)):
+                try:
+                    result = json.loads(candidate)
+                    return result.get("type", "UNKNOWN"), float(result.get("confidence", 0.0))
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    continue
+
+            self.logger.warning(f"VLM classify response not parseable: {raw[:200]}")
+            return "UNKNOWN", 0.0
         except Exception as e:
             self.logger.warning(f"VLM classify failed: {e}")
             return "UNKNOWN", 0.0

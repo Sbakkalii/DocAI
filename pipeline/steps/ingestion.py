@@ -89,7 +89,7 @@ class IngestionStep(BaseStep):
                     metadata={
                         "source_file": str(file_path),
                         "content_hash": f"{content_hash}_page_{i}",
-                        "page_text": page_text[:500],
+                        "page_text": page_text[:2000],
                         "page_count": len(doc),
                         "image_path": str(img_path),
                     },

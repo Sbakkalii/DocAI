@@ -5,7 +5,7 @@ import { Loading01Icon } from "@hugeicons/core-free-icons"
 
 export function BatchEvalView() {
   const [mode, setMode] = useState('hybrid')
-  const [model, setModel] = useState('qwen2.5:7b-instruct-q4_K_M')
+  const [model, setModel] = useState('phi3:mini')
   const [numDocs, setNumDocs] = useState(10)
   const [running, setRunning] = useState(false)
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
@@ -13,7 +13,12 @@ export function BatchEvalView() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
 
   useEffect(() => {
-    fetch('/api/ollama/models').then(r => r.json()).then(d => { if (d.models?.length) setOllamaModels(d.models) }).catch(() => {})
+    fetch('/api/ollama/models').then(r => r.json()).then(d => {
+      if (d.models?.length) {
+        const names = d.models.map((m: unknown) => typeof m === 'string' ? m : (m as Record<string, unknown>).name as string).filter(Boolean)
+        setOllamaModels(names as string[])
+      }
+    }).catch(() => {})
   }, [])
 
   async function runBatch() {
@@ -60,7 +65,7 @@ export function BatchEvalView() {
               <select value={model} onChange={e => setModel(e.target.value)}
                 className="w-full bg-bg-elevated text-xs text-text-primary px-2 py-1.5 rounded-lg border border-border">
                 {(() => {
-                  const batchModels = ollamaModels.length > 0 ? ollamaModels : ['qwen2.5:7b-instruct-q4_K_M', 'llama3.2:3b-instruct-q4_K_M']
+                  const batchModels = ollamaModels.length > 0 ? ollamaModels : ['phi3:mini', 'llama3.2:3b-instruct-q4_K_M']
                   const batchInstruct = batchModels.filter(m => m.includes('instruct'))
                   const batchBase = batchModels.filter(m => !m.includes('instruct'))
                   return (

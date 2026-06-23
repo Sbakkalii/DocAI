@@ -113,14 +113,14 @@ def build_schema_for_document_type(doc_type: str) -> Dict[str, Any]:
 def _build_union_schema() -> Dict[str, Any]:
     """Build a union schema containing all fields from all known document types."""
     all_properties: Dict[str, Any] = {}
-    has_line_items = False
+    all_defs: Dict[str, Any] = {}
 
     for model_class in DOCUMENT_TYPE_SCHEMAS.values():
         sub_schema = model_class.model_json_schema()
         props = sub_schema.get("properties", {})
+        defs = sub_schema.get("$defs", {})
+        all_defs.update(defs)
         for key, val in props.items():
-            if key == "line_items":
-                has_line_items = True
             if key not in all_properties:
                 val_copy = dict(val)
                 val_copy.pop("title", None)
@@ -136,6 +136,8 @@ def _build_union_schema() -> Dict[str, Any]:
         "properties": all_properties,
         "additionalProperties": False,
     }
+    if all_defs:
+        schema["$defs"] = all_defs
     return schema
 
 

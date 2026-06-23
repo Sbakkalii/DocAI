@@ -47,7 +47,7 @@ TEXT TO CORRECT:
 
 class HybridOCRStep(BaseStep):
     name = "hybrid_ocr"
-    description = "PaddleOCR layout + VLM text correction"
+    description = "RapidOCR layout + VLM text correction"
 
     def __init__(self, config: PipelineConfig):
         super().__init__(config)
@@ -72,7 +72,7 @@ class HybridOCRStep(BaseStep):
 
             ocr_result = await self._run_ocr(image_path)
             if not ocr_result:
-                self.logger.warning(f"Page {page.page_number}: PaddleOCR failed, skipping")
+                self.logger.warning(f"Page {page.page_number}: OCR failed, skipping")
                 continue
 
             vlm_raw = await self._run_vlm(image_path)
@@ -123,6 +123,20 @@ class HybridOCRStep(BaseStep):
         return ctx
 
     async def _run_ocr(self, image_path: str) -> Optional[OCRResult]:
+        loop = asyncio.get_event_loop()
+        if self.ocr_engine == "tesseract":
+            result = await loop.run_in_executor(None, self._run_tesseract, image_path)
+        else:
+            result = await loop.run_in_executor(None, self._run_rapidocr, image_path)
+        if result and self.ocr_post_correct and result.words:
+            corrected_text = await self._post_correct(result.to_text())
+            if corrected_text:
+                corrected_words = corrected_text.split()
+                if len(corrected_words) == len(result.words):
+                    result = OCRResult(corrected_words, result.boxes, result.confidences, result.image_width, result.image_height)
+        return result
+
+    def _run_rapidocr(self, image_path: str) -> Optional[OCRResult]:
         try:
             from rapidocr_onnxruntime import RapidOCR
             from PIL import Image
@@ -148,18 +162,35 @@ class HybridOCRStep(BaseStep):
                     boxes.append([x0, y0, x1, y1])
                     confidences.append(float(conf))
 
-            result = OCRResult(words, boxes, confidences, width, height)
-
-            if self.ocr_post_correct and result.words:
-                corrected_text = await self._post_correct(result.to_text())
-                if corrected_text:
-                    corrected_words = corrected_text.split()
-                    if len(corrected_words) == len(result.words):
-                        result = OCRResult(corrected_words, boxes, confidences, width, height)
-
-            return result
+            return OCRResult(words, boxes, confidences, width, height)
         except ImportError:
             self.logger.error("RapidOCR not installed. pip install rapidocr_onnxruntime")
+            return None
+
+    def _run_tesseract(self, image_path: str) -> Optional[OCRResult]:
+        try:
+            import pytesseract
+            from PIL import Image
+
+            img = Image.open(image_path)
+            width, height = img.size
+
+            data = pytesseract.image_to_data(img, lang=self.ocr_language, output_type=pytesseract.Output.DICT)
+
+            words, boxes, confidences = [], [], []
+            for i, text in enumerate(data["text"]):
+                if text.strip() and int(data["conf"][i]) > 0:
+                    words.append(text.strip())
+                    boxes.append([
+                        data["left"][i], data["top"][i],
+                        data["left"][i] + data["width"][i],
+                        data["top"][i] + data["height"][i],
+                    ])
+                    confidences.append(int(data["conf"][i]) / 100.0)
+
+            return OCRResult(words, boxes, confidences, width, height)
+        except ImportError:
+            self.logger.error("Tesseract not installed. pip install pytesseract")
             return None
 
     async def _run_vlm(self, image_path: str) -> Optional[str]:
@@ -208,7 +239,7 @@ class HybridOCRStep(BaseStep):
             self.logger.warning(f"Post-correction failed: {e}")
             return text
 
-    async     def _build_hybrid(self, ocr_result: OCRResult, vlm_text: str) -> dict:
+    async def _build_hybrid(self, ocr_result: OCRResult, vlm_text: str) -> dict:
         vlm_tokens = self._tokenize_vlm(vlm_text)
         n_ocr = len(ocr_result.words)
         n_vlm = len(vlm_tokens)
@@ -347,4 +378,3 @@ class HybridOCRStep(BaseStep):
     async def _strip_markdown(text: str) -> str:
         from utils.text_utils import strip_markdown
         return strip_markdown(text)
-        return "\n".join(cleaned)

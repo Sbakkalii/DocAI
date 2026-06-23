@@ -34,3 +34,10 @@ storage/retrieval/
 node_modules/
 frontend/dist/
 data/documents/invoice_dataset
+
+# Environment installers
+Miniconda3*.sh
+
+# Dataset & scripts (too large for repo)
+data/invoice_dataset/
+scripts/

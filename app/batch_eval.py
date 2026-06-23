@@ -148,7 +148,7 @@ async def _process_single_doc(
 
 async def run_batch_eval(
     mode: str = "hybrid",
-    model_name: str = "qwen2.5:7b-instruct-q4_K_M",
+    model_name: str = "phi3:mini",
     embedding_model: str = "e5",
     num_docs: int = 5,
     target_fields: Optional[List[str]] = None,

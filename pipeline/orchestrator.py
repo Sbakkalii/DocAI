@@ -184,28 +184,49 @@ class PipelineOrchestrator:
             pages_data = []
             for p in ctx.pages:
                 graph = p.metadata.get("document_graph", {})
+                nodes = graph.get("nodes", [])
                 pages_data.append({
                     "page_number": p.page_number,
                     "text": p.metadata.get("doc_graph_text", ""),
                     "markdown": p.metadata.get("doc_graph_markdown", ""),
                     "graph": {
-                        "node_count": len(graph.get("nodes", [])),
+                        "node_count": len(nodes),
                         "edge_count": len(graph.get("edges", [])),
                         "tables": graph.get("tables", []),
                         "kv_pairs": graph.get("kv_pairs", []),
                         "lines": graph.get("lines", []),
+                        "nodes": [
+                            {"id": n["id"], "label": n["label"], "bbox": n["bbox"]}
+                            for n in nodes
+                        ],
                     },
                 })
             return {"pages": pages_data}
         elif step_name == "end_to_end_vlm":
             pages_data = []
+            total_api_time = 0.0
+            total_tokens = 0
             for p in ctx.pages:
+                api_time = p.metadata.get("vlm_api_time", 0)
+                tokens = p.metadata.get("vlm_est_tokens", 0)
+                total_api_time += api_time
+                total_tokens += tokens
                 pages_data.append({
                     "page_number": p.page_number,
                     "fields": p.extracted_fields,
                     "raw": p.metadata.get("e2e_vlm_raw", ""),
+                    "vlm_api_time": api_time,
+                    "vlm_est_tokens": tokens,
+                    "vlm_throughput": p.metadata.get("vlm_throughput", 0),
                 })
-            return {"pages": pages_data}
+            return {
+                "pages": pages_data,
+                "timing": {
+                    "total_api_time": round(total_api_time, 3),
+                    "total_est_tokens": total_tokens,
+                    "avg_throughput": round(total_tokens / total_api_time, 1) if total_api_time > 0 else 0,
+                },
+            }
         elif step_name == "parallel_stream_splitter":
             return {
                 "pages": [{

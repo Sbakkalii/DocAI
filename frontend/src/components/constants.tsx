@@ -22,6 +22,11 @@ export const STEP_LABELS: Record<string, string> = {
   cross_page: 'Cross-Page Resolution',
   knowledge_graph: 'Knowledge Graph',
   evaluation: 'Evaluation',
+  parallel_stream_splitter: 'Parallel Stream Splitter',
+  page_level_classifier: 'Page Classifier',
+  map_phase_extraction: 'VLM Extraction (Map)',
+  reduce_phase_stitching: 'Stitching (Reduce)',
+  global_validation: 'Global Validation',
 }
 
 export const STEP_INFO: Record<string, { what: string; how: string; expected: string }> = {
@@ -31,19 +36,19 @@ export const STEP_INFO: Record<string, { what: string; how: string; expected: st
     expected: 'A list of pages ready for downstream processing.',
   },
   ocr: {
-    what: 'Extracts text and bounding boxes from document images using PaddleOCR or RapidOCR.',
-    how: 'Runs PaddleOCR (CPU) which detects words and their spatial positions (x0,y0,x1,y1 boxes) with confidence scores. Optional LLM post-correction fixes spacing artifacts.',
+    what: 'Extracts text and bounding boxes from document images using RapidOCR or Tesseract.',
+    how: 'Runs RapidOCR (CPU) which detects words and their spatial positions (x0,y0,x1,y1 boxes) with confidence scores. Optional LLM post-correction fixes spacing artifacts.',
     expected: 'OCRResult with words, bounding boxes, confidences — used by to_markdown() for spatial layout reconstruction.',
   },
   vision_ocr: {
     what: 'VLM-based text extraction using gemma3:4b as an alternative OCR engine.',
     how: 'Sends the image to a vision-language model (gemma3:4b via Ollama) which reads text directly from the visual input. Outputs raw text with line breaks preserved. Post-correction fixes spacing.',
-    expected: 'Plain text with approximate layout. No bounding boxes. Less spatial accuracy than PaddleOCR but better at reading damaged or complex layouts.',
+    expected: 'Plain text with approximate layout. No bounding boxes. Less spatial accuracy than RapidOCR but better at reading damaged or complex layouts.',
   },
   hybrid_ocr: {
-    what: 'Combines PaddleOCR spatial accuracy with VLM text quality.',
-    how: 'Runs PaddleOCR (for bounding box layout) AND VLM OCR (for text quality), then overlays VLM-corrected words onto PaddleOCR\'s bounding boxes. Uses PaddleOCR\'s to_markdown() for perfect pipe-table reconstruction.',
-    expected: 'Best of both worlds: clean text from VLM + exact table structure from PaddleOCR boxes. Ideal for documents with tables.',
+    what: 'Combines RapidOCR spatial accuracy with VLM text quality.',
+    how: 'Runs RapidOCR (for bounding box layout) AND VLM OCR (for text quality), then overlays VLM-corrected words onto RapidOCR\'s bounding boxes. Uses RapidOCR\'s to_markdown() for perfect pipe-table reconstruction.',
+    expected: 'Best of both worlds: clean text from VLM + exact table structure from RapidOCR boxes. Ideal for documents with tables.',
   },
   document_graph: {
     what: 'Builds a spatial graph from OCR bounding boxes for advanced layout analysis.',
@@ -135,6 +140,31 @@ export const STEP_INFO: Record<string, { what: string; how: string; expected: st
     how: '3 metrics: accuracy (per-field exact match + Token F1 vs GT annotations), faithfulness (token overlap between extracted values and OCR/VLM source text), confidence (per-field confidence from validation). Auto-discovers GT via find_annotation_file().',
     expected: 'Accuracy score, faithfulness score, confidence score with per-field breakdown. Ground truth TSV required.',
   },
+  parallel_stream_splitter: {
+    what: 'Splits document pages into parallel streams for independent VLM extraction.',
+    how: 'Groups pages by predicted type and assigns each batch to a VLM instance. Pages are processed concurrently within each stream.',
+    expected: 'Organized page groups ready for parallel VLM extraction.',
+  },
+  page_level_classifier: {
+    what: 'Classifies each page type using keyword scoring with VLM fallback.',
+    how: 'Scores each page against type keywords (invoice, contract, report, etc). If confidence is below threshold, falls back to VLM-based classification. Sets page_type on each PageResult.',
+    expected: 'Per-page type classification with confidence scores.',
+  },
+  map_phase_extraction: {
+    what: 'Per-page VLM field extraction using type-specific schemas.',
+    how: 'For each page with an image, builds a schema for the detected document type, sends the image + prompt to the VLM (gemma3:4b), and parses the JSON response. Runs concurrently with a semaphore for concurrency control.',
+    expected: 'Extracted fields per page with type-specific schema, cached for re-runs.',
+  },
+  reduce_phase_stitching: {
+    what: 'Stitches per-page VLM results into a coherent document-level output.',
+    how: 'Merges overlapping fields across contiguous same-type pages, resolves conflicts by keeping the highest-confidence values, and produces a unified document-level extraction.',
+    expected: 'Merged field values across pages with deduplication and conflict resolution.',
+  },
+  global_validation: {
+    what: 'Validates the stitched document-level output against business rules.',
+    how: 'Checks required fields, arithmetic consistency, and cross-page references. Flags any anomalies found across the document.',
+    expected: 'Validation result with issues list at the document level.',
+  },
 }
 
 export const MULTI_TASK_TASK_OPTIONS: Array<{id: string; label: string; description: string}> = [
@@ -147,9 +177,9 @@ export const MULTI_TASK_TASK_OPTIONS: Array<{id: string; label: string; descript
 export const STEP_ORDER = Object.keys(STEP_LABELS)
 
 export const STEP_GROUPS: { label: string; steps: string[] }[] = [
-  { label: 'Preprocessing', steps: ['ingestion'] },
-  { label: 'Extraction & Validation', steps: ['end_to_end_vlm', 'document_classifier', 'llm_extraction', 'validation', 'confidence_scoring'] },
-  { label: 'Results', steps: ['export', 'vendor_lookup', 'anomaly'] },
+  { label: 'Preprocessing', steps: ['ingestion', 'parallel_stream_splitter'] },
+  { label: 'Extraction & Validation', steps: ['end_to_end_vlm', 'page_level_classifier', 'map_phase_extraction', 'reduce_phase_stitching', 'document_classifier', 'llm_extraction', 'validation', 'confidence_scoring'] },
+  { label: 'Results', steps: ['export', 'vendor_lookup', 'anomaly', 'global_validation'] },
   { label: 'Context Engineering (RAG)', steps: ['ocr', 'embedding', 'retrieval', 'rag'] },
   { label: 'Evaluation', steps: ['evaluation', 'multi_task'] },
   { label: 'Advanced (Hybrid)', steps: ['vision_ocr', 'hybrid_ocr', 'document_graph', 'table_extraction', 'cross_page', 'knowledge_graph'] },
@@ -157,14 +187,16 @@ export const STEP_GROUPS: { label: string; steps: string[] }[] = [
 
 export function getPreprocSteps(mode: string): string[] {
   if (mode === 'end_to_end') return ['ingestion']
-  if (mode === 'graph') return ['ingestion', 'document_graph', 'table_extraction']
+  if (mode === 'multi_page_vlm') return ['ingestion', 'parallel_stream_splitter']
+  if (mode === 'graph') return ['ingestion', 'document_graph']
   return ['ingestion', 'hybrid_ocr', 'table_extraction']
 }
 
 export const MODE_STEP_ALLOWLIST: Record<string, Set<string>> = {
   hybrid: new Set(['ingestion', 'hybrid_ocr', 'document_classifier', 'embedding', 'retrieval', 'rag', 'llm_extraction', 'validation', 'confidence_scoring', 'export', 'vendor_lookup', 'anomaly', 'multi_task', 'evaluation', 'table_extraction']),
-  graph: new Set(['ingestion', 'document_graph', 'document_classifier', 'embedding', 'retrieval', 'rag', 'llm_extraction', 'validation', 'confidence_scoring', 'export', 'vendor_lookup', 'anomaly', 'multi_task', 'evaluation', 'table_extraction']),
-  end_to_end: new Set(['ingestion', 'document_classifier', 'end_to_end_vlm', 'validation', 'confidence_scoring', 'export', 'vendor_lookup', 'anomaly', 'multi_task', 'evaluation']),
+  graph: new Set(['ingestion', 'document_graph', 'document_classifier', 'embedding', 'retrieval', 'rag', 'llm_extraction', 'validation', 'confidence_scoring', 'export', 'vendor_lookup', 'anomaly', 'multi_task', 'evaluation', 'table_extraction', 'cross_page', 'knowledge_graph']),
+  end_to_end: new Set(['ingestion', 'document_classifier', 'end_to_end_vlm', 'validation', 'export', 'vendor_lookup', 'anomaly', 'multi_task', 'evaluation']),
+  multi_page_vlm: new Set(['ingestion', 'parallel_stream_splitter', 'page_level_classifier', 'map_phase_extraction', 'reduce_phase_stitching', 'global_validation', 'vendor_lookup', 'anomaly', 'multi_task', 'export', 'evaluation']),
 }
 
 export function getEnabledSteps(mode: string): string[] {
@@ -236,62 +268,63 @@ export const FIELD_CATEGORIES = [
 ]
 
 export const AVAILABLE_MODELS = [
-  'qwen2.5:3b',
-  'qwen2.5:7b',
-  'qwen2.5:14b',
-  'llama3.2:3b',
-  'llama3.1:8b',
-  'mistral:7b',
-  'deepseek-r1:8b',
-  'phi4:14b',
+  'phi3:mini',
+  'llama3.2:3b-instruct-q4_K_M',
+  'llama3.2:1b',
 ]
 
 export const AVAILABLE_VLM_MODELS = [
   'gemma3:4b',
-  'qwen2.5vl:3b',
-  'deepseek-ocr:latest',  
+  'deepseek-ocr',
+  'moondream',
 ]
 
 export const DOCUMENT_TYPE_MODELS: Record<string, { recommended: string; reason: string }> = {
-  invoice: { recommended: 'qwen2.5:7b', reason: 'Best for structured tabular data & numeric precision' },
-  contract: { recommended: 'deepseek-r1:8b', reason: 'Reasoning needed for legal clauses & long text' },
-  purchase_order: { recommended: 'qwen2.5:7b', reason: 'Same structure as invoices with product line items' },
-  delivery_note: { recommended: 'qwen2.5:3b', reason: 'Simple documents with few fields, fast extraction' },
-  bank_statement: { recommended: 'qwen2.5:7b', reason: 'Numeric precision for balances & transaction data' },
-  id_card: { recommended: 'qwen2.5:3b', reason: 'Simple key-value pairs, fast extraction sufficient' },
+  invoice: { recommended: 'phi3:mini', reason: 'Best for structured tabular data & numeric precision' },
+  contract: { recommended: 'phi3:mini', reason: 'Reasoning needed for legal clauses & long text' },
+  purchase_order: { recommended: 'phi3:mini', reason: 'Same structure as invoices with product line items' },
+  delivery_note: { recommended: 'llama3.2:1b', reason: 'Simple documents with few fields, fast extraction' },
+  bank_statement: { recommended: 'phi3:mini', reason: 'Numeric precision for balances & transaction data' },
+  id_card: { recommended: 'llama3.2:1b', reason: 'Simple key-value pairs, fast extraction sufficient' },
 }
 
 export const MODE_OPTIONS = [
   { value: 'end_to_end', label: 'End-to-End VLM', desc: 'Image → fields directly via VLM', disabled: false },
-  { value: 'hybrid', label: 'Hybrid OCR + LLM', desc: 'OCR + retrieval + RAG + LLM extraction', disabled: true },
-  { value: 'graph', label: 'Graph-Based', desc: 'Spatial document graph + LLM extraction', disabled: true },
+  { value: 'multi_page_vlm', label: 'Multi-Page VLM', desc: 'Classify → VLM extract → stitch pages', disabled: false },
+  { value: 'hybrid', label: 'Hybrid OCR + LLM', desc: 'OCR + retrieval + RAG + LLM extraction', disabled: false },
+  { value: 'graph', label: 'Graph-Based', desc: 'Spatial document graph + LLM extraction', disabled: false },
 ]
 
 export const MODE_INFO: Record<string, { what: string; how: string; expected: string }> = {
   end_to_end: {
     what: 'Image → fields directly via a vision-language model.',
-    how: 'Sends the raw invoice image to a VLM (gemma3:4b, qwen2.5vl:3b, deepseek-ocr:3b) with a prompt asking for JSON output of all invoice fields. Bypasses OCR, embedding, retrieval, and RAG entirely.',
+    how: 'Sends the raw invoice image to a VLM (gemma3:4b, deepseek-ocr) with a prompt asking for JSON output of all invoice fields. Bypasses OCR, embedding, retrieval, and RAG entirely.',
     expected: 'Extracted fields directly from the VLM with field name normalization and target field ordering applied.',
   },
+  multi_page_vlm: {
+    what: 'Multi-page document processing via VLM.',
+    how: 'Splits pages, classifies each page type, runs VLM extraction per page with type-specific schemas, then stitches results across pages. Uses gemma3:4b or deepseek-ocr via Ollama.',
+    expected: 'Fields extracted per page with type-specific schemas, merged across contiguous same-type pages, validated globally.',
+  },
   hybrid: {
-    what: 'Combines PaddleOCR spatial accuracy with VLM text quality, then extracts fields via LLM.',
-    how: 'Runs PaddleOCR (bounding boxes) AND VLM OCR (text quality), merges them, then runs embedding → retrieval → RAG → LLM extraction (qwen2.5:7b). Uses few-shot examples from the vector DB.',
-    expected: 'Best accuracy for complex invoices: clean text from VLM, exact table structure from PaddleOCR, and LLM field extraction with RAG context.',
+    what: 'Combines RapidOCR spatial accuracy with VLM text quality, then extracts fields via LLM.',
+    how: 'Runs RapidOCR (bounding boxes) AND VLM OCR (text quality), merges them, then runs embedding → retrieval → RAG → LLM extraction (phi3:mini). Uses few-shot examples from the vector DB.',
+    expected: 'Best accuracy for complex invoices: clean text from VLM, exact table structure from RapidOCR, and LLM field extraction with RAG context.',
   },
   graph: {
     what: 'Builds a spatial document graph from OCR boxes, then extracts fields via LLM.',
-    how: 'Each word from PaddleOCR becomes a graph node with spatial relationships (right_of, below). Detects tables and key-value pairs. Converts to markdown, then runs embedding → retrieval → RAG → LLM extraction.',
+    how: 'Runs RapidOCR for lightweight text extraction. Each word becomes a graph node with spatial relationships (right_of, below). Detects tables and key-value pairs. Converts to markdown, then runs embedding → retrieval → RAG → LLM extraction.',
     expected: 'Graph-aware text structure that preserves document layout. Useful for non-tabular documents where spatial relationships matter.',
   },
 }
 
 export const MODE_OCR_MODEL: Record<string, string> = {
-  hybrid: 'PaddleOCR + gemma3:4b VLM',
-  graph: 'PaddleOCR (spatial graph)',
+  hybrid: 'RapidOCR + gemma3:4b VLM',
+  graph: 'RapidOCR (spatial graph)',
   end_to_end: 'gemma3:4b VLM',
 }
 
-export const DEFAULT_QA_PROMPT = `You are a precise document QA assistant. Your job is to answer questions using ONLY the extracted fields and OCR text provided below.
+export const QA_SYSTEM_TEMPLATE = `You are Ace, a friendly and enthusiastic document QA assistant. Your personality is encouraging, knowledgeable, and concise — like a helpful co-pilot who's genuinely excited about documents.
 
 ## Grounding Rules (CRITICAL)
 1. ALWAYS append the FIELD NAME in ALL CAPS in parentheses after every value you cite.
@@ -306,7 +339,18 @@ export const DEFAULT_QA_PROMPT = `You are a precise document QA assistant. Your 
 5. For "are you sure?" or confidence questions, reference:
    - The validation status: "TOTAL passed arithmetic check (TOTAL)"
    - The evidence text: "found as '24120.00' in the OCR text"
-6. Answer in the user's language. Be concise but conversational when appropriate.`
+6. Answer in the user's language. Be concise but conversational when appropriate. Keep responses brief — no more than 3-4 sentences unless asked for detail.
+7. Start every response with a brief acknowledgment (like "Got it!", "Sure thing!", "Here you go!") then give the answer.`
+
+export const QA_QUICK_OPTIONS = [
+  "What's the total amount?",
+  "Who is the supplier?",
+  "What's the invoice date?",
+  "Are there any issues?",
+  "Summarize this document",
+]
+
+export const DEFAULT_QA_PROMPT = QA_SYSTEM_TEMPLATE
 
 export const METRIC_INFO: Record<string, { label: string; desc: string; category: string }> = {
   accuracy: {
@@ -358,11 +402,11 @@ export const STEP_PREREQS: Record<string, string[]> = {
   document_graph: ['ingestion'],
   end_to_end_vlm: ['ingestion'],
   document_classifier: ['ingestion'],
-  table_extraction: ['ocr', 'hybrid_ocr'],
-  embedding: ['document_classifier'],
+  table_extraction: ['ocr', 'hybrid_ocr', 'vision_ocr', 'document_graph'],
+  embedding: ['document_classifier', 'ocr', 'vision_ocr', 'hybrid_ocr', 'document_graph', 'end_to_end_vlm'],
   retrieval: ['embedding'],
   rag: ['retrieval'],
-  llm_extraction: ['rag', 'document_classifier'],
+  llm_extraction: ['rag', 'document_classifier', 'ocr', 'vision_ocr', 'hybrid_ocr', 'document_graph', 'end_to_end_vlm'],
   validation: ['llm_extraction'],
   evaluation: ['llm_extraction'],
   cross_page: ['llm_extraction'],

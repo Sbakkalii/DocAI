@@ -21,7 +21,7 @@ export default function App() {
   const [waiting, setWaiting] = useState(false)
   const [, setNextStepName] = useState<string | null>(null)
 
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [theme, setTheme] = useState<'dark' | 'light'>('light')
 
   useEffect(() => {
     document.documentElement.classList.toggle('light', theme === 'light')

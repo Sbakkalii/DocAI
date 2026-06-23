@@ -19,20 +19,44 @@ class DocumentGraphStep(BaseStep):
         for page in ctx.pages:
             image_path = page.metadata.get("image_path")
             if not image_path:
+                page.metadata["doc_graph_status"] = "skipped"
                 continue
 
-            if not page.ocr_result or not page.ocr_result.words:
-                ocr_result = await self._run_ocr(image_path)
-                if not ocr_result or not ocr_result.words:
-                    self.logger.warning(f"Page {page.page_number}: no OCR data for graph")
-                    continue
-                page.ocr_result = ocr_result
-                page.metadata["ocr_word_count"] = len(ocr_result.words)
+            ocr_result = page.ocr_result if (page.ocr_result and page.ocr_result.words) else None
+            if not ocr_result:
+                try:
+                    ocr_result = await self._run_ocr(image_path)
+                except Exception as e:
+                    self.logger.warning(f"Page {page.page_number}: OCR failed ({e}), falling back to page text")
+                    ocr_result = None
 
-            graph = self._build_graph(page)
+            if not ocr_result or not ocr_result.words:
+                page_text = page.metadata.get("page_text", "")
+                if page_text:
+                    self.logger.info(f"Page {page.page_number}: building graph from page text ({len(page_text)} chars)")
+                    ocr_result = OCRResult(
+                        words=page_text.split(),
+                        boxes=[[0, 0, 0, 0]] * len(page_text.split()),
+                        confidences=[1.0] * len(page_text.split()),
+                        image_width=page.metadata.get("image_width", 1000),
+                        image_height=page.metadata.get("image_height", 1000),
+                    )
+                else:
+                    ctx.add_error(self.name, f"Page {page.page_number}: no OCR data or page text for graph")
+                    page.metadata["doc_graph_status"] = "failed"
+                    page.metadata["document_graph"] = {"nodes": [], "edges": [], "tables": [], "kv_pairs": [], "lines": []}
+                    page.metadata["doc_graph_markdown"] = ""
+                    page.metadata["doc_graph_text"] = ""
+                    continue
+
+            page.metadata["doc_graph_ocr"] = ocr_result
+            page.metadata["ocr_word_count"] = len(ocr_result.words)
+
+            graph = self._build_graph(ocr_result)
             page.metadata["document_graph"] = graph
             page.metadata["doc_graph_markdown"] = self._graph_to_markdown(graph)
             page.metadata["doc_graph_text"] = self._graph_to_text(graph)
+            page.metadata["doc_graph_status"] = "success"
             self.logger.info(
                 f"Page {page.page_number}: graph — {len(graph['nodes'])} nodes, "
                 f"{len(graph['edges'])} edges, {len(graph['tables'])} tables"
@@ -40,50 +64,10 @@ class DocumentGraphStep(BaseStep):
         return ctx
 
     async def _run_ocr(self, image_path: str) -> Optional[OCRResult]:
-        """Run OCR. Prefer PaddleOCR for better word spacing, fall back to RapidOCR."""
-        result = await self._run_paddleocr(image_path)
-        if result is not None:
-            return result
+        """Run OCR using configured engine."""
+        if self.ocr_engine == "tesseract":
+            return await self._run_tesseract(image_path)
         return await self._run_rapidocr(image_path)
-
-    async def _run_paddleocr(self, image_path: str) -> Optional[OCRResult]:
-        try:
-            from paddleocr import PaddleOCR
-            from PIL import Image
-
-            img = Image.open(image_path).convert("RGB")
-            width, height = img.size
-
-            ocr = PaddleOCR(
-                use_angle_cls=True,
-                lang="en",
-                use_gpu=False,
-                show_log=False,
-            )
-            results = ocr.ocr(image_path, cls=True)
-
-            words, boxes, confidences = [], [], []
-            if results and results[0]:
-                for line in results[0]:
-                    box, (text, conf) = line
-                    text = text.strip()
-                    if text:
-                        xs = [p[0] for p in box]
-                        ys = [p[1] for p in box]
-                        words.append(text)
-                        boxes.append([int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))])
-                        confidences.append(float(conf))
-
-            self.logger.info(f"PaddleOCR produced {len(words)} words for graph")
-            if words:
-                return OCRResult(words, boxes, confidences, width, height)
-            return None
-        except ImportError:
-            self.logger.info("PaddleOCR not installed; will fall back to RapidOCR")
-            return None
-        except Exception as e:
-            self.logger.warning(f"PaddleOCR failed: {e}; falling back to RapidOCR")
-            return None
 
     async def _run_rapidocr(self, image_path: str) -> Optional[OCRResult]:
         try:
@@ -116,8 +100,33 @@ class DocumentGraphStep(BaseStep):
             self.logger.error("RapidOCR not installed. pip install rapidocr_onnxruntime")
             return None
 
-    def _build_graph(self, page) -> dict:
-        ocr = page.ocr_result
+    async def _run_tesseract(self, image_path: str) -> Optional[OCRResult]:
+        try:
+            import pytesseract
+            from PIL import Image
+
+            img = Image.open(image_path)
+            width, height = img.size
+
+            data = pytesseract.image_to_data(img, lang=self.config.ocr.language, output_type=pytesseract.Output.DICT)
+
+            words, boxes, confidences = [], [], []
+            for i, text in enumerate(data["text"]):
+                if text.strip() and int(data["conf"][i]) > 0:
+                    words.append(text.strip())
+                    boxes.append([
+                        data["left"][i], data["top"][i],
+                        data["left"][i] + data["width"][i],
+                        data["top"][i] + data["height"][i],
+                    ])
+                    confidences.append(int(data["conf"][i]) / 100.0)
+
+            return OCRResult(words, boxes, confidences, width, height)
+        except ImportError:
+            self.logger.error("Tesseract not installed. pip install pytesseract")
+            return None
+
+    def _build_graph(self, ocr: OCRResult) -> dict:
         iw, ih = ocr.image_width or 1, ocr.image_height or 1
 
         nodes = []

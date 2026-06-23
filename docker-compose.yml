@@ -44,7 +44,7 @@ services:
     environment:
       - OLLAMA_KEEP_ALIVE=5m
       - OLLAMA_NUM_PARALLEL=4
-      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_MAX_LOADED_MODELS=4
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "ollama list 2>/dev/null || exit 1"]
@@ -70,10 +70,12 @@ services:
       - sh
       - -c
       - |
-        echo "Pulling extraction model (qwen2.5:7b-instruct-q4_K_M)..."
-        ollama pull qwen2.5:7b-instruct-q4_K_M
-        echo "Pulling VLM model (gemma3:4b)..."
+        echo "Pulling VLM (gemma3:4b)..."
         ollama pull gemma3:4b
+        echo "Pulling OCR VLM (deepseek-ocr)..."
+        ollama pull deepseek-ocr
+        echo "Pulling extraction LLM (phi3:mini)..."
+        ollama pull phi3:mini
         echo "All models pulled. You can now run: docker compose up -d"
     depends_on:
       ollama:

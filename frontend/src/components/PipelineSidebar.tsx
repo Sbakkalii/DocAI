@@ -1,14 +1,19 @@
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from 'react'
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ChevronLeftIcon, CheckmarkCircleIcon, AlertCircleIcon, PlayIcon, InformationCircleIcon, Cancel01Icon } from "@hugeicons/core-free-icons"
+import { ChevronLeftIcon, CheckmarkCircleIcon, AlertCircleIcon, PlayIcon, InformationCircleIcon, Cancel01Icon, Loading01Icon } from "@hugeicons/core-free-icons"
 import { MODE_OPTIONS, MODE_INFO, FIELD_CATEGORIES } from './constants'
+import type { PipelineResult } from '../types'
+
+export const AVAILABLE_OCR_ENGINES = ['rapidocr', 'tesseract']
 
 export function PipelineSidebar({ collapsed, onToggle,
   currentMode, onModeChange: _onModeChange, onRunMode: _onRunMode,
   selectedFields, onFieldToggle, sendFields,
   embeddingModels, currentEmbeddingModel, setCurrentEmbeddingModel,
   currentVlmModel, setCurrentVlmModel, vlmModels,
+  currentOcrEngine, setCurrentOcrEngine, ocrEngines,
+  resultsData, selectedStep, onSelectStep,
   progressPct, completedCount, totalSteps,
 }: {
   collapsed: boolean
@@ -19,6 +24,10 @@ export function PipelineSidebar({ collapsed, onToggle,
   currentEmbeddingModel: string; setCurrentEmbeddingModel: (m: string) => void
   currentVlmModel: string; setCurrentVlmModel: (m: string) => void
   vlmModels: string[]
+  currentOcrEngine: string; setCurrentOcrEngine: (m: string) => void; ocrEngines: string[]
+  resultsData: PipelineResult | null
+  selectedStep: string | null
+  onSelectStep: (s: string | null) => void
   progressPct: number; completedCount: number; totalSteps: number
 }) {
   const allFieldKeys = FIELD_CATEGORIES.flatMap(c => c.fields)
@@ -112,9 +121,9 @@ export function PipelineSidebar({ collapsed, onToggle,
           </div>
         ))}
         <div className="text-[11px] text-text-muted/70">
-          {currentMode === 'end_to_end' ? `VLM: ${currentVlmModel}` :
-           currentMode === 'hybrid' ? `PaddleOCR + ${currentVlmModel} VLM` :
-           currentMode === 'graph' ? `PaddleOCR (spatial graph) + ${currentVlmModel}` : ''}
+          {currentMode === 'end_to_end' || currentMode === 'multi_page_vlm' ? `VLM: ${currentVlmModel}` :
+           currentMode === 'hybrid' ? `OCR + ${currentVlmModel} VLM` :
+           currentMode === 'graph' ? `OCR (spatial graph) + ${currentVlmModel}` : ''}
         </div>
       </div>
 
@@ -149,6 +158,51 @@ export function PipelineSidebar({ collapsed, onToggle,
           ))}
         </div>
       </div>
+
+      {/* ── OCR Engine ── */}
+      {(currentMode === 'hybrid' || currentMode === 'graph') && (
+      <div className="px-4 py-3 border-b border-border/50 space-y-2 shrink-0">
+        <div className="text-xs font-semibold text-text-muted">OCR Engine</div>
+        <div className="space-y-0.5">
+          {ocrEngines.map(m => (
+            <button key={m} onClick={() => setCurrentOcrEngine(m)}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors
+                ${currentOcrEngine === m ? 'bg-accent-violet/15 text-accent-violet border border-accent-violet/30' : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated/40 border border-transparent'}`}>
+              <span className="flex-1 text-left truncate capitalize">{m === 'rapidocr' ? 'RapidOCR (lightweight)' : 'Tesseract (multi-lang)'}</span>
+              {currentOcrEngine === m && <span className="text-accent-violet text-lg leading-none">·</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      )}
+
+      {/* ── Results ── */}
+      {(resultsData || completedCount > 0 || selectedStep === '__results__') && (
+      <div className="px-4 py-3 border-b border-border/50 space-y-2 shrink-0">
+        <button onClick={() => onSelectStep(selectedStep === '__results__' ? null : '__results__')}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors border ${
+            selectedStep === '__results__'
+              ? 'bg-accent-green/15 text-accent-green border-accent-green/30'
+              : 'bg-bg-elevated/40 text-text-muted border-border/40 hover:bg-accent-green/10 hover:border-accent-green/30'
+          }`}>
+          <div className="w-5 h-5 flex items-center justify-center shrink-0">
+            {resultsData ? (
+              <HugeiconsIcon icon={CheckmarkCircleIcon} className="size-3.5 text-accent-green" />
+            ) : (
+              <HugeiconsIcon icon={Loading01Icon} className="size-3.5 animate-spin text-accent-violet" />
+            )}
+          </div>
+          <span className={`flex-1 text-left truncate font-medium ${resultsData ? 'text-accent-green' : 'text-accent-violet'}`}>
+            {resultsData ? 'Results' : 'Processing…'}
+          </span>
+          {resultsData && (
+            <span className="text-[10px] font-mono text-text-muted tabular-nums shrink-0">
+              {resultsData.num_pages}p · {resultsData.total_time.toFixed(1)}s
+            </span>
+          )}
+        </button>
+      </div>
+      )}
 
       {/* ── Target Fields ── */}
       <div className="px-4 py-3">

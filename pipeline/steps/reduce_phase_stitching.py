@@ -45,6 +45,15 @@ class ReducePhaseStitchingStep(BaseStep):
             self.logger.warning("No extractions found — skipping reduce phase")
             return ctx
 
+        # Single page — no stitching needed, use page extraction directly
+        if len(page_extractions) == 1:
+            master_json = page_extractions[0]["fields"]
+            self.logger.info("Single page — using page extraction directly as master JSON")
+            ctx.metadata["stitched_document"] = master_json
+            ctx.metadata["page_extractions"] = page_extractions
+            self._apply_stitched_to_pages(ctx, master_json)
+            return ctx
+
         doc_type = ctx.metadata.get("document_type", "document")
         schema = self._build_stitch_schema(page_extractions)
 

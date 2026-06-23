@@ -42,6 +42,9 @@ class EmbeddingStep(BaseStep):
             if self.model_name == "e5":
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer("intfloat/multilingual-e5-small")
+            elif self.model_name == "e5-small-v2":
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer("intfloat/e5-small-v2")
             elif self.model_name == "minilm":
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -56,18 +59,17 @@ class EmbeddingStep(BaseStep):
         """Compute embedding from preferred text source.
 
         Priority (controlled by self._text_source):
-          auto: VLM > OCR > page_text
-          vlm: VLM > OCR > page_text
-          ocr: OCR > VLM > page_text
+          auto: VLM > corrected_text (graph/hybrid) > OCR > page_text
+          vlm: VLM > corrected_text > OCR > page_text
+          ocr: corrected_text > OCR > VLM > page_text
         """
         vlm_text = page.metadata.get("vlm_text", "")
-        hybrid_text = page.metadata.get("hybrid_text", "") or page.metadata.get("doc_graph_text", "")
+        graph_text = page.metadata.get("doc_graph_text", "") or page.metadata.get("hybrid_text", "")
         ocr_text = page.ocr_result.to_text() if page.ocr_result and page.ocr_result.words else ""
         page_text = page.metadata.get("page_text", "")
 
-        # Prioritize hybrid/graph-text if available (corrected by VLM or graph-structured)
-        if hybrid_text:
-            ocr_text = hybrid_text
+        if graph_text and self._text_source != "vlm":
+            ocr_text = graph_text
 
         prefer_vlm = self._text_source == "vlm"
         prefer_ocr = self._text_source == "ocr"
@@ -76,15 +78,11 @@ class EmbeddingStep(BaseStep):
             return await asyncio.to_thread(
                 functools.partial(self._text_embedding, vlm_text)
             )
-        if prefer_ocr and ocr_text:
+        if ocr_text:
             return await asyncio.to_thread(
                 functools.partial(self._text_embedding, ocr_text)
             )
-        if not prefer_vlm and ocr_text:
-            return await asyncio.to_thread(
-                functools.partial(self._text_embedding, ocr_text)
-            )
-        if not prefer_ocr and vlm_text:
+        if vlm_text:
             return await asyncio.to_thread(
                 functools.partial(self._text_embedding, vlm_text)
             )

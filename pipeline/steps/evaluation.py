@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unicodedata
 import re
 from pathlib import Path
@@ -98,29 +99,47 @@ class EvaluationStep(BaseStep):
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
         self.target_fields = self._get_target_fields(ctx)
         results: Dict[str, Any] = {}
+        metric_timing: Dict[str, float] = {}
         if "accuracy" in self.metrics:
+            t0 = time.time()
             results["accuracy"] = await self._compute_accuracy(ctx)
+            metric_timing["accuracy"] = round(time.time() - t0, 3)
         if "faithfulness" in self.metrics:
+            t0 = time.time()
             results["faithfulness"] = await self._compute_faithfulness(ctx)
+            metric_timing["faithfulness"] = round(time.time() - t0, 3)
         if "confidence" in self.metrics:
+            t0 = time.time()
             results["confidence"] = await self._compute_confidence(ctx)
+            metric_timing["confidence"] = round(time.time() - t0, 3)
         if "numeric_delta" in self.metrics:
+            t0 = time.time()
             results["numeric_delta"] = await self._compute_numeric_delta(ctx)
+            metric_timing["numeric_delta"] = round(time.time() - t0, 3)
         if "format_compliance" in self.metrics:
+            t0 = time.time()
             results["format_compliance"] = await self._compute_format_compliance(ctx)
+            metric_timing["format_compliance"] = round(time.time() - t0, 3)
         if "detection_rate" in self.metrics:
+            t0 = time.time()
             results["detection_rate"] = await self._compute_detection_rate(ctx)
+            metric_timing["detection_rate"] = round(time.time() - t0, 3)
 
+        t0 = time.time()
         results["enrichment"] = self._compute_enrichment(ctx)
+        metric_timing["enrichment"] = round(time.time() - t0, 3)
 
+        results["metric_timing"] = metric_timing
         ctx.evaluation_results = results
+        total_eval = sum(metric_timing.values())
         self.logger.info(
             f"Evaluation results: accuracy={results.get('accuracy', {}).get('score')}, "
             f"faithfulness={results.get('faithfulness', {}).get('score')}, "
             f"confidence={results.get('confidence', {}).get('average')}, "
             f"numeric_delta={results.get('numeric_delta', {}).get('score')}, "
             f"format_compliance={results.get('format_compliance', {}).get('score')}, "
-            f"detection_rate={results.get('detection_rate', {}).get('score')}"
+            f"detection_rate={results.get('detection_rate', {}).get('score')}, "
+            f"timing={metric_timing} ({total_eval:.2f}s total)"
         )
         has_fields = bool(ctx.pages[0].extracted_fields) if ctx.pages else False
         fields_count = len(ctx.pages[0].extracted_fields) if ctx.pages and ctx.pages[0].extracted_fields else 0

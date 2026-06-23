@@ -43,7 +43,8 @@ class RAGStep(BaseStep):
             store.build_document_type_templates()
             self.logger.info(f"Using document-type templates for '{doc_type}'")
         for page in ctx.pages:
-            ocr_text = page.ocr_result.to_text() if page.ocr_result else page.metadata.get("page_text", "")
+            graph_text = page.metadata.get("doc_graph_text", "") or page.metadata.get("doc_graph_markdown", "")
+            ocr_text = graph_text or (page.ocr_result.to_text() if page.ocr_result else page.metadata.get("page_text", ""))
             try:
                 page.rag_rules = await asyncio.wait_for(
                     asyncio.to_thread(

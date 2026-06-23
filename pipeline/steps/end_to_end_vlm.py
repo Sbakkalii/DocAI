@@ -13,6 +13,7 @@ Includes agentic retry loop for low-confidence extractions.
 import asyncio
 import base64
 import json
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -327,7 +328,9 @@ class EndToEndVLMStep(BaseStep):
                 return {}, page.metadata
 
             self.logger.info(f"E2E VLM: extracting from {Path(image_path).name}")
+            t0 = time.time()
             fields = await self._extract(client, image_path, schema, doc_type, session_id=session_id)
+            api_time = time.time() - t0
             fields = self._normalize_line_items(fields)
             fields = self._expand_line_items(fields)
 
@@ -336,8 +339,14 @@ class EndToEndVLMStep(BaseStep):
             metadata["e2e_used"] = True
             metadata["vlm_text"] = self._build_vlm_text(fields)
             metadata["vlm_schema_type"] = doc_type
+            metadata["vlm_api_time"] = round(api_time, 3)
+            raw_len = len(metadata["e2e_vlm_raw"])
+            est_tokens = max(raw_len // 4, 1)
+            metadata["vlm_est_tokens"] = est_tokens
+            metadata["vlm_throughput"] = round(est_tokens / api_time, 1) if api_time > 0 else 0
 
-            self.logger.info(f"Page {page.page_number}: e2e extracted {len(fields)} fields")
+            self.logger.info(f"Page {page.page_number}: e2e extracted {len(fields)} fields "
+                             f"({api_time:.2f}s, ~{est_tokens} tok, {metadata['vlm_throughput']} tok/s)")
 
             return fields, metadata
 
@@ -416,7 +425,7 @@ class EndToEndVLMStep(BaseStep):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content, "images": [img_b64]},
                 ],
-                options={"temperature": 0.1, "num_predict": 4096},
+                options={"temperature": 0.1, "num_predict": 2048},
                 format=schema,
             )
 
@@ -452,7 +461,7 @@ class EndToEndVLMStep(BaseStep):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content, "images": [img_b64]},
             ],
-            options={"temperature": 0.1, "num_predict": 4096},
+            options={"temperature": 0.1, "num_predict": 2048},
             format=schema,
             stream=True,
         )
