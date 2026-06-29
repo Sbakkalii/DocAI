@@ -342,11 +342,12 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 - **Map-Reduce stitching** — LLM-based reduce phase merges per-page JSON extractions into a single master document: deduplicates overlapping line items, sums subtotals, reconciles totals
 - **Global validation with agentic retry** — merge-consistency checks detect cross-page arithmetic errors and duplicate line items. Retry targets the reduce phase first (cheaper than re-running VLM)
 - **Pydantic schema injection** — document type determines which Pydantic JSON schema is passed to the VLM (InvoiceSchema, ContractSchema, PurchaseOrderSchema, etc.). No alias mapping or key normalization needed
+- **OCR engine switching** — runtime switch between RapidOCR (default, pure Python) and Tesseract via the sidebar or `ocr_engine` API parameter. No restart needed
 - **Structured field extraction** — 12+ target fields (NUMBER, SUPPLIER, ADDRESS, INVOICE_DATE, LINE items, totals...) plus 20+ additional fields for contracts, POs, bank statements, ID cards
 - **Document classifier** — auto-detects document type (invoice, contract, PO, delivery note, bank statement, ID card) and routes relevant extraction fields and schemas
 - **Vendor context enrichment** — fuzzy-matches supplier (rapidfuzz) against internal registry, pulls expected VAT rate, currency, and payment terms for contextual validation
 - **Agentic retry loop** — if confidence falls below threshold, the VLM re-extracts with correction hints from validation issues; re-validates and re-scores up to `max_retries` times
-- **VLM response cache** — MD5-hashed response cache prevents duplicate inference. Optional `cache_enabled` toggle and `/api/cache/clear` endpoint
+- **VLM response cache** — MD5-hashed response cache prevents duplicate inference across VLM extraction, hybrid OCR, and vision OCR steps. Optional `cache_enabled` toggle and `/api/cache/clear` endpoint
 - **Rate limiting** — asyncio.Semaphore prevents Ollama overload when processing multiple pages in parallel
 - **Confidence calibration** — signal weights (OCR confidence, evidence match, format valid) automatically adjusted from batch evaluation results. Persisted to disk and loaded on restart. See `utils/confidence_calibration.py`
 - **Confidence scoring** — per-field confidence with clickable OCR evidence highlights showing exactly which text supports each extracted value
@@ -356,6 +357,7 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 - **Validation** — cross-field arithmetic checks (TOTAL vs subtotals, line-item qty × unit_price), format validation, OCR evidence overlap, **vendor-context checks** (VAT rate, currency mismatch)
 - **Real-time progress** — WebSocket-driven step-by-step progress updates with live status per pipeline stage
 - **Streaming VLM output** — incremental VLM response broadcast via WebSocket for real-time partial result visibility
+- **Ace QA persona** — friendly "Ace" assistant with dynamic system prompt adapted to the current document type. Short, enthusiastic answers citing extracted field names in ALL CAPS
 - **QA model switching** — choose from available Ollama models for question-answering on extracted data (`GET /api/ollama/models`)
 - **vLLM support** — optional vLLM inference engine with PagedAttention continuous batching and guided JSON decoding for production deployments
 - **Async Celery workers** — optional Celery/Redis worker pool for non-blocking multi-page document processing

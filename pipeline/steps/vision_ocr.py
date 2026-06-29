@@ -9,6 +9,7 @@ artifacts.
 
 import asyncio
 import base64
+import hashlib
 import json
 import re
 import time
@@ -94,11 +95,20 @@ class VisionOCRStep(BaseStep):
 
     async def _run_vlm(self, image_path: str) -> Optional[str]:
         try:
+            from utils.cache_manager import get_shared_cache
+            cache = get_shared_cache()
+            with open(image_path, "rb") as f:
+                img_bytes = f.read()
+            img_hash = hashlib.md5(img_bytes).hexdigest()
+            cache_key = cache.make_key("vlm_ocr", self.model, img_hash)
+            found, cached = cache.get_llm(cache_key)
+            if found and cached:
+                self.logger.info(f"VLM cache hit for {Path(image_path).name}")
+                return cached if cached else None
+
             from ollama import AsyncClient
             client = AsyncClient(host=self.config.vision_ocr.ollama_host)
-
-            with open(image_path, "rb") as f:
-                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
 
             response = await client.chat(
                 model=self.model,
@@ -109,8 +119,9 @@ class VisionOCRStep(BaseStep):
                 options={"temperature": 0.1, "num_predict": 4096},
             )
 
-            text = response.get("message", {}).get("content", "").strip()
-            return text if text else None
+            text = response.get("message", {}).get("content", "").strip() or None
+            cache.set_llm(cache_key, text or "", self.model)
+            return text
         except ImportError:
             self.logger.error("ollama not installed. pip install ollama")
             return None
@@ -120,6 +131,14 @@ class VisionOCRStep(BaseStep):
 
     async def _post_correct(self, text: str) -> str:
         try:
+            from utils.cache_manager import get_shared_cache
+            cache = get_shared_cache()
+            text_hash = hashlib.md5(text.encode()).hexdigest()
+            cache_key = cache.make_key("post_correct", self.post_correct_model, text_hash)
+            found, cached = cache.get_llm(cache_key)
+            if found and cached:
+                return cached
+
             from ollama import AsyncClient
             client = AsyncClient(host=self.config.vision_ocr.ollama_host)
 
@@ -133,7 +152,9 @@ class VisionOCRStep(BaseStep):
             )
 
             corrected = response.get("message", {}).get("content", "").strip()
-            return corrected if corrected else text
+            result = corrected if corrected else text
+            cache.set_llm(cache_key, result, self.post_correct_model)
+            return result
         except Exception as e:
             self.logger.warning(f"Post-correction failed: {e}")
             return text
