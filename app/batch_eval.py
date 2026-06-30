@@ -154,11 +154,15 @@ async def run_batch_eval(
     target_fields: Optional[List[str]] = None,
     dataset_path: str = "data/documents/invoice_dataset",
     max_concurrent: int = _MAX_CONCURRENT,
+    with_optimization: bool = False,
 ) -> Dict[str, Any]:
     """Run pipeline on N dataset documents in parallel and return aggregate metrics.
 
     Uses asyncio.Semaphore to limit concurrent pipeline runs.
     Returns per-document metrics plus aggregate accuracy/latency/throughput stats.
+
+    If with_optimization=True, also runs DSPydantic optimization on field
+    descriptions and returns a second set of metrics after optimization.
     """
     invoice_root = Path(dataset_path)
     if not invoice_root.exists():
@@ -258,7 +262,7 @@ async def run_batch_eval(
     from utils.confidence_calibration import get_calibration
     get_calibration().update_from_batch_eval(per_doc_results)
 
-    return {
+    result = {
         "config": {
             "mode": mode,
             "model": model_name,
@@ -270,3 +274,46 @@ async def run_batch_eval(
         "aggregate": aggregate,
         "per_doc": per_doc_results,
     }
+
+    if with_optimization:
+        try:
+            from docai.optimization.example_builder import ExampleBuilder
+            from docai.optimization.schema_optimizer import run_optimization_for_type
+
+            doc_type = "invoice"  # batch eval currently supports invoices
+            builder = ExampleBuilder(dataset_root=dataset_path)
+            examples = builder.build_examples(
+                doc_type=doc_type,
+                num_examples=min(num_docs, 30),
+            )
+
+            if len(examples) >= 5:
+                logger.info(f"Running DSPydantic optimization on {len(examples)} examples...")
+                opt_result = run_optimization_for_type(
+                    doc_type=doc_type,
+                    num_examples=min(num_docs, 30),
+                    model="gemma3:4b",
+                    sequential=True,
+                    verbose=False,
+                )
+                result["optimization"] = {
+                    "baseline_score": opt_result.baseline_score,
+                    "optimized_score": opt_result.optimized_score,
+                    "improvement": round(opt_result.optimized_score - opt_result.baseline_score, 4),
+                    "field_count": len(opt_result.optimized_descriptions),
+                    "optimized_descriptions": opt_result.optimized_descriptions,
+                }
+            else:
+                logger.warning(f"Not enough examples ({len(examples)}) for optimization — skip")
+                result["optimization"] = {
+                    "skipped": True,
+                    "reason": f"Only {len(examples)} examples available (need >= 5)",
+                }
+        except ImportError as e:
+            logger.warning(f"DSPydantic optimization skipped: {e}")
+            result["optimization"] = {"skipped": True, "reason": str(e)}
+        except Exception as e:
+            logger.warning(f"DSPydantic optimization failed: {e}")
+            result["optimization"] = {"error": str(e)}
+
+    return result

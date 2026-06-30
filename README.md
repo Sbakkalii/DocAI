@@ -361,6 +361,8 @@ page count at upload time via `_quick_page_count()` (PyMuPDF, no rendering).
 - **QA model switching** — choose from available Ollama models for question-answering on extracted data (`GET /api/ollama/models`)
 - **vLLM support** — optional vLLM inference engine with PagedAttention continuous batching and guided JSON decoding for production deployments
 - **Async Celery workers** — optional Celery/Redis worker pool for non-blocking multi-page document processing
+- **Headroom compression** — optional `headroom-ai` integration compresses multi-page extraction JSON, RAG context, and QA context before reaching the LLM. 60–87% reduction on structured outputs, fitting more content in the context window. Enabled via `headroom.enabled = True` in config
+- **DSPydantic schema optimization** — auto-optimizes Pydantic field descriptions using DSPy optimizers on ground truth examples. `POST /api/optimize`, CLI `scripts/optimize_schemas.py`
 
 ## Docker Deployment
 
@@ -488,6 +490,12 @@ utils/              Shared utilities
   models.py          Model registry + availability checking
   field_rules.py     Bilingual field rules (fr/en)
   validation_utils.js Cross-field checks
+
+docai/              DocAI extended tools
+  optimization/      DSPydantic schema optimization (field description tuning)
+    example_builder.py  GT TSV → DSPydantic Example objects
+    schema_optimizer.py Prompter wrapper + cache management
+  headroom_utils.py  Headroom-ai compression wrapper for pipeline context reduction
 ```
 
 ## Model Details
@@ -589,6 +597,26 @@ GlobalValidationConfig(
     arithmetic_tolerance=0.02,
 )
 ```
+
+### Headroom Compression
+
+Optional `headroom-ai` integration compresses large context payloads before they reach the LLM, fitting more content in the context window. SmartCrusher handles JSON; Kompress-v2-base handles text.
+
+```bash
+pip install headroom-ai
+```
+
+```python
+HeadroomConfig(
+    enabled=False,                  # Master toggle
+    target_ratio=0.3,               # Target ratio (lower = more aggressive)
+    compress_reduce_input=True,     # Compress page JSON before reduce LLM
+    compress_rag_context=True,      # Compress OCR text + rules in prompts
+    compress_qa_context=False,      # Compress document context for QA
+)
+```
+
+Works across all pipeline modes.
 
 ### Production Deployment (vLLM + Celery)
 

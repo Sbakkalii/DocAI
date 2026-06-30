@@ -17,6 +17,16 @@ from pipeline.base import BaseStep, PipelineContext, PageResult
 from pipeline.schemas import build_schema_for_document_type
 
 
+def _load_optimized_descriptions(doc_type: str) -> dict:
+    if not doc_type:
+        return {}
+    try:
+        from docai.optimization.schema_optimizer import get_description_overrides
+        return get_description_overrides(doc_type)
+    except ImportError:
+        return {}
+
+
 class ReducePhaseStitchingStep(BaseStep):
     name = "reduce_phase_stitching"
     description = "Merge per-page JSON extractions into a single master document"
@@ -84,7 +94,10 @@ class ReducePhaseStitchingStep(BaseStep):
 
         schema = {"type": "object", "properties": {}}
         doc_type = "invoice"
-        base_schema = build_schema_for_document_type(doc_type)
+        description_overrides = _load_optimized_descriptions(doc_type)
+        base_schema = build_schema_for_document_type(
+            doc_type, description_overrides=description_overrides
+        )
         if base_schema and "properties" in base_schema:
             schema = base_schema
         return schema
@@ -97,6 +110,15 @@ class ReducePhaseStitchingStep(BaseStep):
     ) -> dict:
         schema_str = json.dumps(schema, indent=2) if schema else "{}"
         extractions_str = json.dumps(page_extractions, indent=2, default=str)
+
+        if self.config.headroom.enabled and self.config.headroom.compress_reduce_input:
+            compressed = self._headroom_compress(extractions_str)
+            if compressed:
+                self.logger.info(
+                    f"Headroom: reduce input {len(extractions_str)} -> "
+                    f"{len(compressed)} chars"
+                )
+                extractions_str = compressed
 
         prompt = (
             f"You are merging JSON extractions from sequential pages of a single {doc_type}.\n\n"
@@ -228,6 +250,15 @@ class ReducePhaseStitchingStep(BaseStep):
                     merged["LINE/SUB_TOTAL"].append(item.get("sub_total"))
 
         return merged
+
+    @staticmethod
+    def _headroom_compress(content: str) -> Optional[str]:
+        """Compress content using headroom-ai if available."""
+        try:
+            from docai.headroom_utils import compress_content
+            return compress_content(content, target_ratio=0.3)
+        except ImportError:
+            return None
 
     def _parse_json(self, raw: str) -> Optional[dict]:
         try:

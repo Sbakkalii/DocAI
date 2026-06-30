@@ -32,6 +32,17 @@ class EndToEndVLMStep(BaseStep):
         self._semaphore = asyncio.Semaphore(config.end_to_end_vlm.max_concurrency)
 
     @staticmethod
+    def _load_optimized_descriptions(doc_type: str) -> dict:
+        """Load cached DSPydantic-optimized field descriptions for a doc type."""
+        if not doc_type:
+            return {}
+        try:
+            from docai.optimization.schema_optimizer import get_description_overrides
+            return get_description_overrides(doc_type)
+        except ImportError:
+            return {}
+
+    @staticmethod
     def _build_vlm_text(fields: dict) -> str:
         parts = []
         for k, v in fields.items():
@@ -118,7 +129,12 @@ class EndToEndVLMStep(BaseStep):
             ctx.metadata["document_type_confidence"] = 0.8
             self.logger.info(f"VLM self-classified document as '{doc_type}'")
 
-        schema = build_schema_for_document_type(doc_type)
+        description_overrides = self._load_optimized_descriptions(doc_type)
+        schema = build_schema_for_document_type(
+            doc_type, description_overrides=description_overrides
+        )
+        if description_overrides:
+            self.logger.info(f"Using {len(description_overrides)} optimized field descriptions")
 
         self.logger.info(
             f"E2E VLM using model: {self.model}, "
@@ -179,7 +195,10 @@ class EndToEndVLMStep(BaseStep):
         """Run multiple VLM models on each page and merge results via voting."""
         import ollama
 
-        schema = build_schema_for_document_type(doc_type)
+        description_overrides = self._load_optimized_descriptions(doc_type)
+        schema = build_schema_for_document_type(
+            doc_type, description_overrides=description_overrides
+        )
         ensemble_cfg = self.config.ensemble_vlm
         models = ensemble_cfg.models
         strategy = ensemble_cfg.strategy

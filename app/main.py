@@ -23,7 +23,7 @@ from app.batch_store import (
     get_batch, get_batch_docs, get_batch_stats, get_next_queued_doc,
     get_review_queue, get_review_queue_count, approve_doc,
 )
-from pipeline.config import AVAILABLE_MODELS
+from pipeline.config import AVAILABLE_MODELS, DOCUMENT_TYPE_FIELDS
 from utils.structured_logger import setup_structured_logging, get_logger as slog
 
 log_level = os.environ.get("LOG_LEVEL", "INFO")
@@ -929,10 +929,20 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
         client = AsyncClient(host=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
         messages_list: list[dict] = []
         messages_list.append({"role": "system", "content": system_prompt})
-        messages_list.append({
-            "role": "system",
-            "content": f"--- Document Context ---\n{fields_context}\n{evidence_context}\n--- End Context ---",
-        })
+        context_content = f"--- Document Context ---\n{fields_context}\n{evidence_context}\n--- End Context ---"
+
+        # Compress context if headroom is enabled
+        if job.config.headroom.enabled and job.config.headroom.compress_qa_context:
+            from docai.headroom_utils import compress_content
+            compressed = compress_content(context_content, target_ratio=0.3)
+            if compressed and len(compressed) < len(context_content):
+                context_content = compressed
+                logger.info(
+                    f"Headroom: QA context {len(context_content)} -> "
+                    f"{len(compressed)} chars"
+                )
+
+        messages_list.append({"role": "system", "content": context_content})
         history = body.get("messages", [])
         for msg in history:
             if msg.get("role") in ("user", "assistant"):
@@ -963,6 +973,7 @@ async def batch_evaluation(body: dict):
     embedding_model = body.get("embedding_model", "e5")
     num_docs = min(int(body.get("num_docs", 10)), 200)
     target_fields = body.get("target_fields", None)
+    with_optimization = body.get("with_optimization", False)
 
     result = await run_batch_eval(
         mode=mode,
@@ -970,8 +981,96 @@ async def batch_evaluation(body: dict):
         embedding_model=embedding_model,
         num_docs=num_docs,
         target_fields=target_fields,
+        with_optimization=with_optimization,
     )
     return result
+
+
+@app.post("/api/optimize")
+async def optimize_schemas(body: dict):
+    """Run DSPydantic optimization on Pydantic field descriptions.
+
+    Optimizes field descriptions for the given document types using
+    ground truth examples. Returns baseline vs optimized scores.
+    """
+    import asyncio
+
+    doc_types = body.get("doc_types", ["invoice"])
+    if isinstance(doc_types, str):
+        doc_types = [t.strip() for t in doc_types.split(",") if t.strip()]
+    num_examples = min(int(body.get("num_examples", 20)), 100)
+    model = body.get("model", "gemma3:4b")
+    sequential = body.get("sequential", True)
+
+    if not doc_types:
+        raise HTTPException(status_code=400, detail="No document types specified")
+
+    valid_types = list(DOCUMENT_TYPE_FIELDS.keys())
+    for dt in doc_types:
+        if dt not in valid_types:
+            raise HTTPException(status_code=400, detail=f"Unknown type: {dt}. Valid: {valid_types}")
+
+    try:
+        from docai.optimization.schema_optimizer import run_optimization_for_type
+
+        results = {}
+        for dt in doc_types:
+            result = await asyncio.to_thread(
+                run_optimization_for_type,
+                doc_type=dt,
+                num_examples=num_examples,
+                model=model,
+                sequential=sequential,
+                verbose=False,
+            )
+            results[dt] = {
+                "baseline_score": result.baseline_score,
+                "optimized_score": result.optimized_score,
+                "improvement": round(result.optimized_score - result.baseline_score, 4),
+                "field_count": len(result.optimized_descriptions),
+                "optimized_descriptions": result.optimized_descriptions,
+            }
+
+        return {
+            "status": "completed",
+            "results": results,
+            "config": {
+                "model": model,
+                "num_examples": num_examples,
+                "sequential": sequential,
+            },
+        }
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"DSPydantic not installed: {e}. "
+                    f"Run: pip install dspydantic"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")
+
+
+@app.get("/api/optimize/status")
+def optimization_status():
+    """Return current optimization status including cached descriptions."""
+    from docai.optimization import load_optimized_descriptions
+    from docai.optimization.schema_optimizer import OPTIMIZED_SCHEMAS_FILE
+
+    descriptions = load_optimized_descriptions()
+    return {
+        "cache_file": str(OPTIMIZED_SCHEMAS_FILE),
+        "cache_exists": OPTIMIZED_SCHEMAS_FILE.exists(),
+        "optimized_types": list(descriptions.keys()),
+        "descriptions": descriptions,
+    }
+
+
+@app.post("/api/optimize/clear")
+def clear_optimization_cache():
+    """Clear stored optimized descriptions."""
+    from docai.optimization.schema_optimizer import clear_optimized_cache
+    clear_optimized_cache()
+    return {"status": "cleared"}
 
 
 @app.get("/api/dataset/annotations")

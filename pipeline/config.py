@@ -231,10 +231,31 @@ class KnowledgeGraphConfig(BaseModel):
     include_validation: bool = True
 
 
+class DSPydanticOptimizationConfig(BaseModel):
+    """DSPydantic auto-optimization of Pydantic field descriptions."""
+    enabled: bool = False
+    model: str = "gemma3:4b"
+    examples_per_type: int = 20
+    sequential: bool = True
+    parallel_fields: bool = True
+    cache_optimized: bool = True
+    optimized_path: str = ".cache/optimized/optimized_schemas.json"
+
+
 class ConfidenceConfig(BaseModel):
     enabled: bool = False
     threshold_low: float = 0.70
     threshold_high: float = 0.85
+
+
+class HeadroomConfig(BaseModel):
+    """Headroom-ai compression for pipeline context reduction."""
+    enabled: bool = False
+    target_ratio: float = 0.3
+    compress_reduce_input: bool = True
+    compress_rag_context: bool = True
+    compress_qa_context: bool = False
+    compress_vlm_responses: bool = False
 
 
 class ExportConfig(BaseModel):
@@ -373,6 +394,8 @@ class PipelineConfig(BaseModel):
     cross_page: CrossPageConfig = Field(default_factory=CrossPageConfig)
     knowledge_graph: KnowledgeGraphConfig = Field(default_factory=KnowledgeGraphConfig)
     evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
+    dspydantic: DSPydanticOptimizationConfig = Field(default_factory=DSPydanticOptimizationConfig)
+    headroom: HeadroomConfig = Field(default_factory=HeadroomConfig)
 
     session_id: Optional[str] = None
     original_filename: Optional[str] = None

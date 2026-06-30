@@ -87,16 +87,27 @@ DOCUMENT_TYPE_SCHEMAS: Dict[str, type] = {
 }
 
 
-def build_schema_for_document_type(doc_type: str) -> Dict[str, Any]:
+def build_schema_for_document_type(
+    doc_type: str,
+    description_overrides: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Build a JSON schema for the given document type using Pydantic model_json_schema().
 
     For types with line items, the schema uses a consolidated line_items array
     instead of separate LINE/* fields.
     For unknown types, builds a union schema from all known document types.
+
+    Args:
+        doc_type: Document type key (invoice, contract, etc.)
+        description_overrides: Optional dict of field_name → optimized description.
+            When provided, these descriptions replace the originals in the schema.
     """
     model_class = DOCUMENT_TYPE_SCHEMAS.get(doc_type)
     if model_class is None:
-        return _build_union_schema()
+        return _build_union_schema(description_overrides)
+
+    if description_overrides:
+        return _build_schema_with_overrides(model_class, description_overrides)
 
     schema = model_class.model_json_schema()
     schema.pop("title", None)
@@ -110,7 +121,41 @@ def build_schema_for_document_type(doc_type: str) -> Dict[str, Any]:
     return schema
 
 
-def _build_union_schema() -> Dict[str, Any]:
+def _build_schema_with_overrides(
+    model_class: type,
+    description_overrides: Dict[str, str],
+) -> Dict[str, Any]:
+    """Build a JSON schema with overridden field descriptions."""
+    schema = model_class.model_json_schema()
+
+    def apply_overrides(schema_dict: Dict[str, Any], defs: Dict[str, Any], prefix: str = ""):
+        for field_name, field_schema in schema_dict.get("properties", {}).items():
+            field_path = f"{prefix}.{field_name}" if prefix else field_name
+            if field_path in description_overrides:
+                field_schema["description"] = description_overrides[field_path]
+
+    defs = schema.get("$defs", {})
+    apply_overrides(schema, defs)
+    for def_name in defs:
+        apply_overrides(defs[def_name], defs)
+
+    schema.pop("title", None)
+    for prop_name in list(schema.get("properties", {}).keys()):
+        prop = schema["properties"][prop_name]
+        prop.pop("title", None)
+        if "items" in prop and "properties" in prop.get("items", {}):
+            for sub_prop in prop["items"]["properties"].values():
+                sub_prop.pop("title", None)
+            if "title" in prop["items"]:
+                prop["items"].pop("title", None)
+
+    schema["additionalProperties"] = False
+    return schema
+
+
+def _build_union_schema(
+    description_overrides: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
     """Build a union schema containing all fields from all known document types."""
     all_properties: Dict[str, Any] = {}
     all_defs: Dict[str, Any] = {}
@@ -124,6 +169,8 @@ def _build_union_schema() -> Dict[str, Any]:
             if key not in all_properties:
                 val_copy = dict(val)
                 val_copy.pop("title", None)
+                if description_overrides and key in description_overrides:
+                    val_copy["description"] = description_overrides[key]
                 if "items" in val_copy:
                     val_copy["items"] = dict(val_copy["items"])
                     val_copy["items"].pop("title", None)

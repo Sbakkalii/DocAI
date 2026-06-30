@@ -159,7 +159,15 @@ class ConfidenceStep(BaseStep):
                     client = ollama.AsyncClient(host=host)
 
                     doc_type = page.metadata.get("vlm_schema_type", "invoice")
-                    schema = build_schema_for_document_type(doc_type)
+                    description_overrides = {}
+                    try:
+                        from docai.optimization.schema_optimizer import get_description_overrides
+                        description_overrides = get_description_overrides(doc_type)
+                    except ImportError:
+                        pass
+                    schema = build_schema_for_document_type(
+                        doc_type, description_overrides=description_overrides
+                    )
 
                     new_fields = await self._re_extract(
                         client, image_path, schema, doc_type, correction_hint

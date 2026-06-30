@@ -167,6 +167,14 @@ class LLMExtractionStep(BaseStep):
         page.metadata["ocr_text_plain"] = ocr_text_plain
         page.metadata["last_prompt"] = prompt
 
+        if self.config.headroom.enabled and self.config.headroom.compress_rag_context:
+            compressed = self._headroom_compress(prompt)
+            if compressed and len(compressed) < len(prompt):
+                self.logger.info(
+                    f"Headroom: LLM prompt {len(prompt)} -> {len(compressed)} chars"
+                )
+                prompt = compressed
+
         response = await self._call_llm(prompt)
         self.logger.info(
             f"LLM response ({len(response)} chars): {response[:300]}"
@@ -348,6 +356,14 @@ class LLMExtractionStep(BaseStep):
             if k not in result and k in target_set:
                 result[k] = v
         return result
+
+    @staticmethod
+    def _headroom_compress(content: str) -> Optional[str]:
+        try:
+            from docai.headroom_utils import compress_content
+            return compress_content(content, target_ratio=0.5)
+        except ImportError:
+            return None
 
     async def _call_llm(self, prompt: str) -> str:
         """Call LLM with JSON mode for structured output."""

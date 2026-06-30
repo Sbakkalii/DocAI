@@ -18,6 +18,17 @@ from pipeline.base import BaseStep, PipelineContext
 from pipeline.schemas import build_schema_for_document_type
 
 
+def _load_optimized_descriptions(doc_type: str) -> dict:
+    """Load cached DSPydantic-optimized field descriptions for a doc type."""
+    if not doc_type:
+        return {}
+    try:
+        from docai.optimization.schema_optimizer import get_description_overrides
+        return get_description_overrides(doc_type)
+    except ImportError:
+        return {}
+
+
 class MapPhaseExtractionStep(BaseStep):
     name = "map_phase_extraction"
     description = "Extract fields per page with page-index context using VLM"
@@ -46,7 +57,10 @@ class MapPhaseExtractionStep(BaseStep):
                     return
 
                 page_type = page.page_type or ctx.metadata.get("document_type", "invoice")
-                schema = build_schema_for_document_type(page_type)
+                description_overrides = _load_optimized_descriptions(page_type)
+                schema = build_schema_for_document_type(
+                    page_type, description_overrides=description_overrides
+                )
 
                 prompt = self._build_map_prompt(
                     page_type=page_type,
