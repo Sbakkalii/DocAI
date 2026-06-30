@@ -9,9 +9,9 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 
-from pipeline.config import PipelineConfig
-from pipeline.base import PipelineContext
 from pipeline import PipelineOrchestrator
+from pipeline.base import PipelineContext
+from pipeline.config import PipelineConfig
 
 
 async def run_test():

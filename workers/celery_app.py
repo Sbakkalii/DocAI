@@ -3,6 +3,7 @@ Celery application configuration for async pipeline execution.
 """
 
 import os
+
 from celery import Celery
 
 REDIS_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")

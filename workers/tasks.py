@@ -7,17 +7,13 @@ and stream progress via WebSocket.
 """
 
 import asyncio
-import json
 import logging
-import os
 import time
-import uuid
-from pathlib import Path
-from typing import Optional
 
 from celery import Task
-from workers.celery_app import app
+
 from pipeline.config import PipelineConfig
+from workers.celery_app import app
 
 logger = logging.getLogger("workers.tasks")
 
@@ -33,8 +29,9 @@ class PipelineTask(Task):
     @staticmethod
     def _update_status(session_id: str, status: str, **kwargs):
         try:
-            from app.websocket_manager import ws_manager
             import asyncio
+
+            from app.websocket_manager import ws_manager
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(
@@ -55,8 +52,8 @@ def process_multi_page_document(
     self,
     session_id: str,
     input_path: str,
-    original_filename: Optional[str] = None,
-    step_overrides: Optional[dict] = None,
+    original_filename: str | None = None,
+    step_overrides: dict | None = None,
 ):
     """Async Celery task for Track B multi-page map-reduce pipeline."""
     logger.info(f"Starting async multi-page pipeline for {session_id}: {input_path}")
@@ -74,8 +71,8 @@ def process_multi_page_document(
                     if hasattr(step_config, key):
                         setattr(step_config, key, value)
 
-    from pipeline.orchestrator import PipelineOrchestrator
     from pipeline.base import PipelineContext
+    from pipeline.orchestrator import PipelineOrchestrator
 
     orchestrator = PipelineOrchestrator(config)
     ctx = PipelineContext(

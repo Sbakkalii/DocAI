@@ -15,14 +15,12 @@ Usage:
 """
 
 import asyncio
-import json
 import glob
-import sys
+import json
 import os
 import re
-from pathlib import Path
-from typing import Dict, List, Any, Tuple
-
+import sys
+from typing import Any
 
 # ─────────────────────────────────────────────────────────────────────
 # Language Detection
@@ -198,7 +196,7 @@ def find_latest_session() -> str:
     return sessions[-1]
 
 
-def load_session(session_id: str) -> Dict[str, Any]:
+def load_session(session_id: str) -> dict[str, Any]:
     if session_id == "latest":
         session_dir = find_latest_session()
     else:
@@ -220,7 +218,7 @@ def load_session(session_id: str) -> Dict[str, Any]:
 # Query Handlers (Bilingual)
 # ─────────────────────────────────────────────────────────────────────
 
-def query_suppliers(summary: Dict[str, Any], lang: str) -> str:
+def query_suppliers(summary: dict[str, Any], lang: str) -> str:
     invoices = summary.get("per_invoice_results", [])
     lines = [f"--- {L(lang, 'suppliers')} ---\n"]
 
@@ -252,7 +250,7 @@ def query_suppliers(summary: Dict[str, Any], lang: str) -> str:
 
     sg = summary.get("supplier_graph", {})
     if sg:
-        lines.append(f"\n  Supplier graph:")
+        lines.append("\n  Supplier graph:")
         lines.append(f"    {L(lang, 'supplier_name')}: {sg.get('total_suppliers', 0)}")
         for top in sg.get("top_suppliers_by_volume", [])[:5]:
             lines.append(f"    • {top['name']}: {top['invoices']} {L(lang, 'invoices')}, ${top['total_amount']:,.2f}")
@@ -260,7 +258,7 @@ def query_suppliers(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_financial(summary: Dict[str, Any], lang: str) -> str:
+def query_financial(summary: dict[str, Any], lang: str) -> str:
     invoices = summary.get("per_invoice_results", [])
     prod = summary.get("production_metrics_summary", {})
     lines = [f"--- {L(lang, 'financial')} ---\n"]
@@ -308,7 +306,7 @@ def query_financial(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_accuracy(summary: Dict[str, Any], lang: str) -> str:
+def query_accuracy(summary: dict[str, Any], lang: str) -> str:
     invoices = summary.get("per_invoice_results", [])
     prod = summary.get("production_metrics_summary", {})
     acc = summary.get("accuracy", {})
@@ -346,7 +344,7 @@ def query_accuracy(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_performance(summary: Dict[str, Any], lang: str) -> str:
+def query_performance(summary: dict[str, Any], lang: str) -> str:
     prod = summary.get("production_metrics_summary", {})
     latency = summary.get("latency", {})
     throughput = summary.get("throughput", {})
@@ -386,7 +384,7 @@ def query_performance(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_quality(summary: Dict[str, Any], lang: str) -> str:
+def query_quality(summary: dict[str, Any], lang: str) -> str:
     prod = summary.get("production_metrics_summary", {})
     flags = prod.get("quality_flags", {})
     lines = [f"--- {L(lang, 'quality')} ---\n"]
@@ -421,7 +419,7 @@ def query_quality(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_overview(summary: Dict[str, Any], lang: str) -> str:
+def query_overview(summary: dict[str, Any], lang: str) -> str:
     invoices = summary.get("per_invoice_results", [])
     prod = summary.get("production_metrics_summary", {})
     config = summary.get("benchmark_config", {})
@@ -456,7 +454,7 @@ def query_overview(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_recommendations(summary: Dict[str, Any], lang: str) -> str:
+def query_recommendations(summary: dict[str, Any], lang: str) -> str:
     prod = summary.get("production_metrics_summary", {})
     flags = prod.get("quality_flags", {})
     overall = prod.get("overall", {})
@@ -520,7 +518,7 @@ def query_recommendations(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_line_items(summary: Dict[str, Any], lang: str) -> str:
+def query_line_items(summary: dict[str, Any], lang: str) -> str:
     """Show extracted line items from invoices."""
     invoices = summary.get("per_invoice_results", [])
     lines = [f"--- {L(lang, 'line_items')} ---\n"]
@@ -550,7 +548,7 @@ def query_line_items(summary: Dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def query_dates(summary: Dict[str, Any], lang: str) -> str:
+def query_dates(summary: dict[str, Any], lang: str) -> str:
     """Show extracted dates from invoices."""
     invoices = summary.get("per_invoice_results", [])
     lines = [f"--- {L(lang, 'dates')} ---\n"]
@@ -634,7 +632,7 @@ QUERY_HANDLERS = {
 }
 
 
-def route_query(query: str) -> Tuple[callable, str]:
+def route_query(query: str) -> tuple[callable, str]:
     """Route query to appropriate handler and detect language."""
     lang = detect_language(query)
     query_lower = query.lower()

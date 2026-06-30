@@ -452,10 +452,25 @@ docker compose build app
 | `POST` | `/api/pipeline/rerun/{session_id}/{step_name}` | Rerun a specific step + downstream |
 | `GET` | `/api/ollama/models` | List available Ollama models |
 | `POST` | `/api/qa` | Ask question about extracted data (optional `model` parameter) |
-| `POST` | `/api/cache/clear` | Clear VLM response cache |
 | `GET` | `/api/presets` | List available pipeline presets |
 | `GET` | `/api/result/{session_id}` | Get pipeline results |
 | `GET` | `/api/result/{session_id}/download` | Download results as JSON |
+| `GET` | `/health` | Liveness check (always returns OK) |
+| `GET` | `/api/health/ready` | Readiness check (verifies Ollama + cache) |
+| `GET` | `/api/config` | Public app configuration (no auth required) |
+| `GET` | `/api/cache/stats` | Shared cache hit rates and stats |
+| `POST` | `/api/cache/clear` | Clear shared VLM/OCR/embedding caches |
+| `GET` | `/api/cache/results` | Pipeline result cache stats (document-fingerprint) |
+| `POST` | `/api/cache/results/clear` | Clear pipeline result cache |
+| `POST` | `/api/optimize` | Run DSPydantic schema optimization |
+| `GET` | `/api/optimize/status` | Cached optimization descriptions status |
+| `POST` | `/api/optimize/clear` | Clear cached optimized descriptions |
+| `POST` | `/api/eval/batch` | Run batch evaluation (supports `with_optimization`) |
+| `POST` | `/api/webhooks/register` | Register webhook URL for pipeline completion |
+| `GET` | `/api/webhooks` | List registered webhook URLs |
+| `DELETE` | `/api/webhooks` | Clear all webhooks |
+
+> All `/api/` endpoints also available at `/api/v1/` prefix via versioning middleware.
 
 ## Production Features
 
@@ -485,7 +500,11 @@ frontend/           React + Vite + Tailwind v4
 app/                FastAPI backend
   main.py            Routes (upload, pipeline, config, download, QA, cache, ollama models)
   pipeline_runner.py  PipelineJob with async step execution, rerun, config updates,
-                      intelligent page-count router (Track A vs Track B)
+                       intelligent page-count router (Track A vs Track B), result cache
+  models.py           Pydantic request/response models for all API endpoints
+  rate_limit.py       Per-IP rate limiting middleware (slowapi)
+  webhooks.py         Pipeline completion webhook notification system
+  websocket_manager.py WebSocket connection pool + broadcast manager
 
 pipeline/           Modular pipeline steps
   steps/             Track A: ingestion | end_to_end_vlm | document_classifier
@@ -506,13 +525,28 @@ utils/              Shared utilities
   models.py          Model registry + availability checking
   field_rules.py     Bilingual field rules (fr/en)
   validation_utils.js Cross-field checks
+  cache_manager.py   Two-tier LRU + SQLite cache for VLM/OCR/embedding responses
+  result_cache.py    Document-fingerprint pipeline result cache (SHA256)
+  circuit_breaker.py  Fail-fast circuit breaker for Ollama/vLLM calls
+  observability.py   Request ID tracing + response time middleware
 
 docai/              DocAI extended tools
   optimization/      DSPydantic schema optimization (field description tuning)
     example_builder.py  GT TSV → DSPydantic Example objects
     schema_optimizer.py Prompter wrapper + cache management
   headroom_utils.py  Headroom-ai compression wrapper for pipeline context reduction
-```
+
+.github/workflows/  CI/CD
+  ci.yml             GitHub Actions: lint (ruff) + typecheck (mypy) + test (pytest)
+
+tests/               Test suite
+  test_api_endpoints.py  25 API endpoint tests (health, auth, pipeline, cache, etc.)
+  test_validation.py     28 validation tests
+  test_annotation_utils  11 annotation utility tests
+  ...                     69+ unit tests total
+
+migrations/          Alembic database migration scaffolding
+
 
 ## Model Details
 

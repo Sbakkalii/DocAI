@@ -1,6 +1,7 @@
 """Tests for pipeline validation step."""
 
 import pytest
+
 from pipeline.config import PipelineConfig
 from pipeline.steps.validation import ValidationStep
 

@@ -1,6 +1,7 @@
 """Tests for the invoice validator utility."""
 
 import pytest
+
 from utils.invoice_validator import InvoiceValidator
 
 

@@ -1,6 +1,6 @@
 """Tests for pipeline schema builders."""
 
-from pipeline.schemas import build_output_schema, build_vlm_schema, build_ollama_response_format
+from pipeline.schemas import build_ollama_response_format, build_output_schema, build_vlm_schema
 
 
 def test_build_output_schema_line_fields():

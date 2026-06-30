@@ -1,11 +1,13 @@
 import asyncio
-from pathlib import Path
 import sys
+from pathlib import Path
+
 sys.path.insert(0, ".")
 
-from pipeline.config import PipelineConfig
-from pipeline.base import PipelineContext
 from pipeline import PipelineOrchestrator
+from pipeline.base import PipelineContext
+from pipeline.config import PipelineConfig
+
 
 async def inspect():
     img = "data/documents/invoice_dataset/invoice_dataset_model_1/images/FACTU2015020048.jpg"

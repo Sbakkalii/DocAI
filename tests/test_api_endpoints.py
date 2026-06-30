@@ -4,7 +4,7 @@ Tests critical endpoints for correctness, input validation, and error handling.
 """
 
 import os
-import pytest
+
 from fastapi.testclient import TestClient
 
 os.environ["API_KEY"] = "test-key-12345"

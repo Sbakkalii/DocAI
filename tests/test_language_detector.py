@@ -1,6 +1,11 @@
 """Tests for the language detector utility."""
 
-from utils.language_detector import LanguageDetector, LANGUAGE_FIELD_SYNONYMS, FRENCH_STOP_WORDS, ENGLISH_STOP_WORDS
+from utils.language_detector import (
+    ENGLISH_STOP_WORDS,
+    FRENCH_STOP_WORDS,
+    LANGUAGE_FIELD_SYNONYMS,
+    LanguageDetector,
+)
 
 
 def test_detect_english():

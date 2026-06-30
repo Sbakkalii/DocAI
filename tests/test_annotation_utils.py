@@ -1,15 +1,13 @@
 """Tests for annotation utilities."""
 
-from pathlib import Path
 from pipeline.annotation_utils import (
+    ANNOTATION_COLORS,
+    annotations_to_boxes,
+    build_page_fragments,
     find_annotation_file,
     load_ground_truth,
     match_predicted_fields,
-    annotations_to_boxes,
-    build_page_fragments,
-    ANNOTATION_COLORS,
 )
-from utils.models import GroundTruth
 
 
 class TestFindAnnotationFile:
