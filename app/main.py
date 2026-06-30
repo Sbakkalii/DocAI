@@ -36,7 +36,7 @@ from app.batch_store import (
     update_batch_status,
     update_doc_status,
 )
-from app.pipeline_runner import get_job, start_pipeline
+from app.pipeline_runner import get_job, start_pipeline, start_pipeline_with_cache
 from app.webhooks import clear_webhooks, get_webhooks, register_webhook
 from app.websocket_manager import ws_manager
 from pipeline.config import AVAILABLE_MODELS, DOCUMENT_TYPE_FIELDS
@@ -215,6 +215,21 @@ def cache_clear():
     return {"status": "cleared"}
 
 
+@app.get("/api/cache/results")
+def result_cache_stats():
+    """Return pipeline result cache stats (document-fingerprint cache)."""
+    from utils.result_cache import PipelineResultCache
+    return PipelineResultCache.stats()
+
+
+@app.post("/api/cache/results/clear")
+def result_cache_clear():
+    """Clear the pipeline result cache."""
+    from utils.result_cache import PipelineResultCache
+    PipelineResultCache.clear()
+    return {"status": "cleared"}
+
+
 @app.get("/api/ollama/models")
 async def list_ollama_models():
     """List all available Ollama models with metadata."""
@@ -323,7 +338,7 @@ async def upload_document(
             step_overrides["llm_extraction"] = {"target_fields": field_list}
             step_overrides["end_to_end_vlm"] = {"target_fields": field_list}
 
-    await start_pipeline(
+    job, from_cache = await start_pipeline_with_cache(
         session_id=session_id,
         input_path=str(save_path),
         config_preset=effective_preset,
@@ -335,7 +350,8 @@ async def upload_document(
     return {
         "session_id": session_id,
         "filename": file.filename,
-        "status": "started",
+        "status": "completed" if from_cache else "started",
+        "from_cache": from_cache,
     }
 
 

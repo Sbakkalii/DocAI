@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Union
 
 from app.websocket_manager import ws_manager
@@ -403,6 +404,19 @@ class PipelineJob:
         self.result = result
         self._mark_terminal("completed")
         self._completed_at = time.time()
+
+        # Store in document-fingerprint result cache
+        try:
+            from utils.result_cache import PipelineResultCache
+            PipelineResultCache.put(
+                filepath=Path(self.input_path),
+                result=result,
+                mode=self.mode,
+                target_fields=self._target_fields_override,
+            )
+        except Exception:
+            logger.debug("Failed to store pipeline result in cache")
+
         try:
             await ws_manager.broadcast(self.session_id, {
                 "type": "completed",
@@ -417,7 +431,30 @@ class PipelineJob:
             logger.info(f"Evaluation data in result: {bool(ev)} keys={list(ev.keys()) if ev else 'none'}")
         logger.info(f"Pipeline {self.session_id} completed in {total_time:.2f}s")
 
+    async def _replay_from_cache(self, cached_result: dict):
+        """Replay a cached pipeline result as if it just completed."""
+        self.status = "completed"
+        self._started_at = time.time()
+        self._completed_at = time.time()
+        self._completion_event = asyncio.Event()
+        self.result = cached_result
+        self._completion_event.set()
+
+        logger.info(f"Pipeline {self.session_id}: replaying from cache")
+        await ws_manager.broadcast(self.session_id, {
+            "type": "completed",
+            "session_id": self.session_id,
+            "elapsed": 0.0,
+            "result": cached_result,
+            "from_cache": True,
+        })
+
     async def run(self):
+        # If result was loaded from document-fingerprint cache, replay instantly
+        if getattr(self, "_from_cache", False) and getattr(self, "_cached_result", None):
+            await self._replay_from_cache(self._cached_result)
+            return
+
         self.status = "running"
         self._started_at = time.time()
         self._completion_event = asyncio.Event()
@@ -744,6 +781,65 @@ async def start_pipeline(
 
     asyncio.create_task(job.run())
     return job
+
+
+async def start_pipeline_with_cache(
+    session_id: str,
+    input_path: str,
+    config_preset: str = "mixed",
+    enable_all: bool = True,
+    step_overrides: dict | None = None,
+    original_filename: str | None = None,
+) -> tuple[PipelineJob, bool]:
+    """Start pipeline with document-fingerprint result cache check.
+
+    Returns (job, from_cache) — from_cache=True means results came from cache
+    and the pipeline was NOT re-run.
+    """
+    from pathlib import Path
+
+    from utils.result_cache import PipelineResultCache
+
+    filepath = Path(input_path)
+
+    # Determine mode for cache key
+    if config_preset.startswith("mode:"):
+        mode = config_preset.split(":", 1)[1]
+    elif config_preset == "single_invoice":
+        mode = "hybrid"
+    elif config_preset == "multi_page":
+        mode = "graph"
+    else:
+        mode = "hybrid"
+
+    # Extract model info for cache key
+    target_fields = None
+    if step_overrides:
+        for step_cfg in step_overrides.values():
+            if isinstance(step_cfg, dict) and "target_fields" in step_cfg:
+                target_fields = step_cfg["target_fields"]
+
+    cached = PipelineResultCache.get(
+        filepath=filepath,
+        mode=mode,
+        target_fields=target_fields,
+    )
+
+    job = await start_pipeline(
+        session_id=session_id,
+        input_path=input_path,
+        config_preset=config_preset,
+        enable_all=enable_all,
+        step_overrides=step_overrides,
+        original_filename=original_filename,
+    )
+
+    if cached:
+        job._from_cache = True
+        job._cached_result = cached
+        logger.info(f"Pipeline cache HIT: {original_filename or input_path} (mode={mode})")
+
+    return job, cached is not None
 
 
 def get_job(session_id: str) -> PipelineJob | None:

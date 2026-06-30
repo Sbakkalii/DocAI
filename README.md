@@ -469,6 +469,7 @@ DocAI includes production-grade infrastructure for reliability, observability, a
 - **Request Tracing** — `X-Request-ID` header on every response for log correlation. `utils/observability.py`.
 - **Circuit Breaker** — `utils/circuit_breaker.py` prevents cascading failures to Ollama/vLLM after 5 consecutive errors with 30s recovery.
 - **Authentication** — API key middleware (`x-api-key` header). `/api/config` public endpoint for non-sensitive settings.
+- **Pipeline Result Cache** — document-fingerprint (SHA256) cache stores full pipeline output by document content hash + mode + config. Re-uploading the same document returns cached results instantly. `GET /api/cache/results`, `POST /api/cache/results/clear`. TTL: 7 days.
 - **Webhook Notifications** — Register URLs via `POST /api/webhooks/register` for pipeline completion callbacks.
 - **Database Migrations** — Alembic setup in `migrations/` for schema versioning.
 
