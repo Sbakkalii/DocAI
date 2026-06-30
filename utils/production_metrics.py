@@ -13,13 +13,11 @@ Tracks:
 - Cache effectiveness
 """
 
-import json
 import logging
 import time
 import tracemalloc
-from dataclasses import dataclass, asdict, field
-from typing import Dict, List, Any, Optional
-from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Any
 
 import psutil
 
@@ -35,7 +33,7 @@ class StageTiming:
     duration_ms: float = 0.0
     cache_hit: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "stage": self.stage,
             "duration_ms": round(self.duration_ms, 2),
@@ -53,7 +51,7 @@ class MemorySnapshot:
     peak_vms_mb: float = 0.0
     memory_delta_mb: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "stage": self.stage,
             "rss_mb": round(self.rss_mb, 2),
@@ -74,7 +72,7 @@ class FaithfulnessScore:
     source_context: str = ""
     confidence: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "field_name": self.field_name,
             "extracted_value": self.extracted_value,
@@ -93,7 +91,7 @@ class AnswerRelevancyScore:
     value_quality: str = "unknown"  # high, medium, low, empty
     relevance_score: float = 0.0  # 0-1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "field_name": self.field_name,
             "expected": self.expected,
@@ -115,7 +113,7 @@ class EntityAccuracy:
     f1: float = 0.0
     fuzzy_matches: int = 0  # Matches via fuzzy rather than exact
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "field_name": self.field_name,
             "tp": self.tp,
@@ -134,10 +132,10 @@ class ReasoningConfidence:
     field_name: str
     value: str
     confidence: float = 0.0
-    signals: Dict[str, float] = field(default_factory=dict)
+    signals: dict[str, float] = field(default_factory=dict)
     # Signals: source_match, traceability, format_valid, consistency, llm_confidence
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "field_name": self.field_name,
             "value": self.value,
@@ -157,24 +155,24 @@ class ProductionMetrics:
     processing_speed_doc_per_sec: float = 0.0
 
     # Faithfulness
-    faithfulness_scores: List[Dict[str, Any]] = field(default_factory=list)
+    faithfulness_scores: list[dict[str, Any]] = field(default_factory=list)
     overall_faithfulness: float = 0.0
 
     # Answer Relevancy
-    answer_relevancy_scores: List[Dict[str, Any]] = field(default_factory=list)
+    answer_relevancy_scores: list[dict[str, Any]] = field(default_factory=list)
     overall_relevancy: float = 0.0
 
     # Entity Accuracy
-    entity_accuracies: List[Dict[str, Any]] = field(default_factory=list)
+    entity_accuracies: list[dict[str, Any]] = field(default_factory=list)
     macro_f1: float = 0.0
     micro_f1: float = 0.0
 
     # Reasoning Confidence
-    reasoning_confidences: List[Dict[str, Any]] = field(default_factory=list)
+    reasoning_confidences: list[dict[str, Any]] = field(default_factory=list)
     average_confidence: float = 0.0
 
     # Timing breakdown
-    stage_timings: List[Dict[str, Any]] = field(default_factory=list)
+    stage_timings: list[dict[str, Any]] = field(default_factory=list)
     ocr_time_ms: float = 0.0
     embedding_time_ms: float = 0.0
     retrieval_time_ms: float = 0.0
@@ -185,7 +183,7 @@ class ProductionMetrics:
     traceability_time_ms: float = 0.0
 
     # Memory
-    memory_snapshots: List[Dict[str, Any]] = field(default_factory=list)
+    memory_snapshots: list[dict[str, Any]] = field(default_factory=list)
     peak_memory_mb: float = 0.0
     total_memory_delta_mb: float = 0.0
 
@@ -206,9 +204,9 @@ class ProductionMetrics:
     llm_cost_estimate: float = 0.0
 
     # Quality flags
-    quality_flags: Dict[str, bool] = field(default_factory=dict)
+    quality_flags: dict[str, bool] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "invoice_id": self.invoice_id,
             "image_path": self.image_path,
@@ -333,9 +331,9 @@ class MetricsCollector:
 
     def compute_faithfulness(
         self,
-        extracted: Dict[str, Any],
+        extracted: dict[str, Any],
         source_text: str,
-    ) -> List[FaithfulnessScore]:
+    ) -> list[FaithfulnessScore]:
         """
         Compute faithfulness: verify each extracted value exists in source.
 
@@ -369,7 +367,6 @@ class MetricsCollector:
                 confidence = 1.0
             else:
                 # Normalized substring match (strip punctuation, accents)
-                import unicodedata
                 normalized_source = self._normalize_text(source_lower)
                 normalized_value = self._normalize_text(value_lower)
 
@@ -398,9 +395,9 @@ class MetricsCollector:
 
     def compute_answer_relevancy(
         self,
-        extracted: Dict[str, Any],
-        expected_fields: List[str] = None,
-    ) -> List[AnswerRelevancyScore]:
+        extracted: dict[str, Any],
+        expected_fields: list[str] = None,
+    ) -> list[AnswerRelevancyScore]:
         """
         Compute answer relevancy: how well extracted fields match expected schema.
 
@@ -447,9 +444,9 @@ class MetricsCollector:
 
     def compute_entity_accuracy(
         self,
-        extracted: Dict[str, Any],
+        extracted: dict[str, Any],
         ground_truth,
-    ) -> List[EntityAccuracy]:
+    ) -> list[EntityAccuracy]:
         """
         Compute entity extraction accuracy with fuzzy matching.
 
@@ -520,10 +517,10 @@ class MetricsCollector:
 
     def compute_reasoning_confidence(
         self,
-        extracted: Dict[str, Any],
-        faithfulness_scores: List[FaithfulnessScore],
-        traceability_graph: Dict[str, Any] = None,
-    ) -> List[ReasoningConfidence]:
+        extracted: dict[str, Any],
+        faithfulness_scores: list[FaithfulnessScore],
+        traceability_graph: dict[str, Any] = None,
+    ) -> list[ReasoningConfidence]:
         """
         Compute reasoning confidence per field based on multiple signals:
         - Source match (faithfulness)
@@ -585,14 +582,14 @@ class MetricsCollector:
 
     def finalize(
         self,
-        timings: List[StageTiming],
-        memory_snapshots: List[MemorySnapshot],
-        faithfulness_scores: List[FaithfulnessScore],
-        relevancy_scores: List[AnswerRelevancyScore],
-        entity_accuracies: List[EntityAccuracy],
-        reasoning_confidences: List[ReasoningConfidence],
-        cache_stats: Dict[str, Any] = None,
-        llm_stats: Dict[str, Any] = None,
+        timings: list[StageTiming],
+        memory_snapshots: list[MemorySnapshot],
+        faithfulness_scores: list[FaithfulnessScore],
+        relevancy_scores: list[AnswerRelevancyScore],
+        entity_accuracies: list[EntityAccuracy],
+        reasoning_confidences: list[ReasoningConfidence],
+        cache_stats: dict[str, Any] = None,
+        llm_stats: dict[str, Any] = None,
         invoice_id: str = "",
         image_path: str = "",
         total_tokens: int = 0,
@@ -691,7 +688,7 @@ class MetricsCollector:
 
         return metrics
 
-    def _get_memory_usage(self) -> Dict[str, float]:
+    def _get_memory_usage(self) -> dict[str, float]:
         """Get current memory usage in MB"""
         mem = self._process.memory_info()
         return {
@@ -702,8 +699,8 @@ class MetricsCollector:
     @staticmethod
     def _normalize_text(text: str) -> str:
         """Normalize text: lowercase, strip accents, remove punctuation"""
-        import unicodedata
         import re
+        import unicodedata
         text = text.lower()
         text = unicodedata.normalize("NFKD", text)
         text = "".join(c for c in text if not unicodedata.combining(c))
@@ -785,7 +782,7 @@ class MetricsCollector:
         return 0.3
 
     @staticmethod
-    def _check_consistency(field_name: str, value: str, all_extracted: Dict[str, Any]) -> float:
+    def _check_consistency(field_name: str, value: str, all_extracted: dict[str, Any]) -> float:
         """Check consistency between extracted fields"""
         # Total amount should be >= untaxed amount
         if field_name == "TOTAL_AMOUNT":

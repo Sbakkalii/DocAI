@@ -1,10 +1,10 @@
 import asyncio
 import functools
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 logger = logging.getLogger("pipeline.rag")
 
@@ -18,7 +18,7 @@ class RAGStep(BaseStep):
         self.k_rules = config.rag.k_rules
         self.k_templates = config.rag.k_templates
         self.embedding_model = config.rag.embedding_model
-        self._store: Optional[Any] = None
+        self._store: Any | None = None
 
     async def _get_store(self):
         if self._store is not None:

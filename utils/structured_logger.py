@@ -5,14 +5,14 @@ Structured JSON logger with session_id and step correlation.
 import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class StructuredFormatter(logging.Formatter):
     """JSON formatter that includes session_id, step, elapsed, and extra fields."""
 
     def format(self, record: logging.LogRecord) -> str:
-        obj: Dict[str, Any] = {
+        obj: dict[str, Any] = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(record.created)),
             "level": record.levelname,
             "logger": record.name,
@@ -40,10 +40,10 @@ def setup_structured_logging(level: str = "INFO", json_output: bool = True):
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
 
-def get_logger(name: str, session_id: Optional[str] = None) -> logging.LoggerAdapter:
+def get_logger(name: str, session_id: str | None = None) -> logging.LoggerAdapter:
     """Return a logger adapter that injects session_id into every record."""
     logger = logging.getLogger(name)
-    extra: Dict[str, Any] = {}
+    extra: dict[str, Any] = {}
     if session_id:
         extra["session_id"] = session_id
     return logging.LoggerAdapter(logger, extra) if extra else logging.LoggerAdapter(logger, {})

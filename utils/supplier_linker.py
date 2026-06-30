@@ -6,12 +6,11 @@ vs "M. Demo") into canonical entities. Builds a knowledge graph of supplier
 relationships, payment patterns, and document links.
 """
 
-import re
 import logging
-from typing import Dict, List, Any, Optional, Tuple
-from collections import defaultdict
+import re
+from typing import Any
 
-from utils.models import SupplierEntity, KGNode, KGEdge
+from utils.models import SupplierEntity
 
 logger = logging.getLogger(__name__)
 
@@ -35,13 +34,13 @@ class SupplierEntityLinker:
     - Payment patterns per supplier
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self.similarity_threshold = self.config.get("similarity_threshold", 0.8)
-        self.entities: Dict[str, SupplierEntity] = {}
-        self._name_to_entity: Dict[str, str] = {}
+        self.entities: dict[str, SupplierEntity] = {}
+        self._name_to_entity: dict[str, str] = {}
 
-    def link_supplier(self, raw_name: str, invoice_id: str = None) -> Tuple[str, SupplierEntity]:
+    def link_supplier(self, raw_name: str, invoice_id: str = None) -> tuple[str, SupplierEntity]:
         """
         Link a raw supplier name to a canonical entity.
         Returns (canonical_name, entity).
@@ -85,9 +84,8 @@ class SupplierEntityLinker:
 
     def update_supplier_address(self, canonical_name: str, address: str):
         """Add address for a supplier if not already known"""
-        if canonical_name in self.entities and address:
-            if address not in self.entities[canonical_name].addresses:
-                self.entities[canonical_name].addresses.append(address)
+        if canonical_name in self.entities and address and address not in self.entities[canonical_name].addresses:
+            self.entities[canonical_name].addresses.append(address)
 
     def update_supplier_dates(self, canonical_name: str, date_str: str):
         """Track first/last seen dates for a supplier"""
@@ -98,7 +96,7 @@ class SupplierEntityLinker:
             if entity.last_seen is None or date_str > entity.last_seen:
                 entity.last_seen = date_str
 
-    def get_entity_graph(self) -> Dict[str, Any]:
+    def get_entity_graph(self) -> dict[str, Any]:
         """Build a knowledge graph of supplier entities"""
         nodes = []
         edges = []
@@ -149,7 +147,7 @@ class SupplierEntityLinker:
             },
         }
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get a summary of all linked entities"""
         return {
             entity_id: {
@@ -196,7 +194,7 @@ class SupplierEntityLinker:
             return self._create_entity(name, name)
         return self.entities[entity_id]
 
-    def _find_best_match(self, cleaned_name: str) -> Optional[Tuple[str, float]]:
+    def _find_best_match(self, cleaned_name: str) -> tuple[str, float] | None:
         """Find the best matching entity for a cleaned name"""
         best = None
         best_score = 0

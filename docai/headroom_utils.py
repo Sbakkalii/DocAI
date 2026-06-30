@@ -13,7 +13,7 @@ Usage:
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ def compress_content(
     content: str,
     target_ratio: float = 0.3,
     protect_recent: int = 0,
-) -> Optional[str]:
+) -> str | None:
     """Compress raw text/JSON content using headroom's pipeline.
 
     Wraps content in a system message (allows compression), runs
@@ -80,7 +80,7 @@ def compress_content(
 def compress_json(
     data: Any,
     target_ratio: float = 0.3,
-) -> Optional[str]:
+) -> str | None:
     """Compress JSON-serializable data using headroom's SmartCrusher.
 
     Args:
@@ -106,7 +106,7 @@ def compress_json(
 def compress_text(
     text: str,
     target_ratio: float = 0.3,
-) -> Optional[str]:
+) -> str | None:
     """Compress plain text using headroom's Kompress-v2-base model.
 
     Args:
@@ -127,10 +127,10 @@ def compress_text(
 
 
 def compress_message_list(
-    messages: List[Dict[str, Any]],
+    messages: list[dict[str, Any]],
     target_ratio: float = 0.3,
     protect_recent: int = 0,
-) -> Optional[List[Dict[str, Any]]]:
+) -> list[dict[str, Any]] | None:
     """Compress a list of OpenAI/Anthropic-format messages.
 
     This is a thin wrapper around headroom.compress() for multi-message

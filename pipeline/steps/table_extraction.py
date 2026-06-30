@@ -6,18 +6,17 @@ line items. Falls back to img2table on the raw image for complex or
 borderless tables when available.
 """
 
-import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 logger = logging.getLogger("pipeline.table_extraction")
 
 # Column header keywords mapped to schema field names (lowercase)
-COLUMN_MAP: Dict[str, str] = {
+COLUMN_MAP: dict[str, str] = {
     "description": "description",
     "designation": "description",
     "désignation": "description",
@@ -78,7 +77,7 @@ class TableExtractionStep(BaseStep):
             )
         return ctx
 
-    async def _extract_line_items(self, page) -> List[Dict[str, Any]]:
+    async def _extract_line_items(self, page) -> list[dict[str, Any]]:
         markdown = self._get_markdown(page)
         if not markdown:
             return []
@@ -108,15 +107,15 @@ class TableExtractionStep(BaseStep):
         )
 
     @staticmethod
-    def _parse_pipe_tables(markdown: str) -> List[List[str]]:
+    def _parse_pipe_tables(markdown: str) -> list[list[str]]:
         """Parse pipe-table markdown into a list of header -> body row mappings.
 
         Returns a list of tables, each table being a list of raw row strings
         (including header and separator rows).
         """
         lines = markdown.split("\n")
-        tables: List[List[str]] = []
-        current: List[str] = []
+        tables: list[list[str]] = []
+        current: list[str] = []
 
         for line in lines:
             stripped = line.strip()
@@ -132,7 +131,7 @@ class TableExtractionStep(BaseStep):
             tables.append(current)
         return tables
 
-    def _table_to_items(self, rows: List[str], page_num: int) -> List[Dict[str, Any]]:
+    def _table_to_items(self, rows: list[str], page_num: int) -> list[dict[str, Any]]:
         """Convert a parsed pipe table into structured line items."""
         if len(rows) < 3:
             return []
@@ -150,7 +149,7 @@ class TableExtractionStep(BaseStep):
             cells = self._parse_row(row_str)
             if not cells or all(c.strip() == "" for c in cells):
                 continue
-            item: Dict[str, Any] = {}
+            item: dict[str, Any] = {}
             for schema_field, col_idx in col_indices.items():
                 if col_idx < len(cells):
                     val = cells[col_idx].strip()
@@ -162,7 +161,7 @@ class TableExtractionStep(BaseStep):
         return items
 
     @staticmethod
-    def _parse_row(row: str) -> List[str]:
+    def _parse_row(row: str) -> list[str]:
         """Split a pipe-table row into cells, stripping leading/trailing pipes."""
         row = row.strip()
         if row.startswith("|"):
@@ -172,12 +171,12 @@ class TableExtractionStep(BaseStep):
         return [c.strip() for c in row.split("|")]
 
     @staticmethod
-    def _map_headers(headers: List[str]) -> Optional[Dict[str, int]]:
+    def _map_headers(headers: list[str]) -> dict[str, int] | None:
         """Map detected column headers to schema field names.
 
         Returns {schema_field: column_index} or None if no recognizable headers.
         """
-        mapping: Dict[str, int] = {}
+        mapping: dict[str, int] = {}
         for i, raw in enumerate(headers):
             cleaned = re.sub(r"[_*]", " ", raw.lower()).strip()
             for synonym, schema_field in COLUMN_MAP.items():
@@ -189,7 +188,7 @@ class TableExtractionStep(BaseStep):
             return None
         return mapping
 
-    async def _extract_with_img2table(self, image_path: str, page) -> List[Dict[str, Any]]:
+    async def _extract_with_img2table(self, image_path: str, page) -> list[dict[str, Any]]:
         """Fallback: use img2table for complex or borderless table layouts."""
         try:
             from img2table.document import Image as Img2TableImage
@@ -203,7 +202,7 @@ class TableExtractionStep(BaseStep):
             for table in extracted:
                 for row in table.df.values:
                     cells = [str(c) if c is not None else "" for c in row]
-                    item: Dict[str, Any] = {}
+                    item: dict[str, Any] = {}
                     # Try to map columns by position — assume common order
                     if len(cells) >= 1:
                         item["description"] = cells[0]

@@ -1,7 +1,6 @@
-from typing import Any, Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.steps.ocr import OCRResult
 
 
@@ -63,16 +62,16 @@ class DocumentGraphStep(BaseStep):
             )
         return ctx
 
-    async def _run_ocr(self, image_path: str) -> Optional[OCRResult]:
+    async def _run_ocr(self, image_path: str) -> OCRResult | None:
         """Run OCR using configured engine."""
         if self.ocr_engine == "tesseract":
             return await self._run_tesseract(image_path)
         return await self._run_rapidocr(image_path)
 
-    async def _run_rapidocr(self, image_path: str) -> Optional[OCRResult]:
+    async def _run_rapidocr(self, image_path: str) -> OCRResult | None:
         try:
-            from rapidocr_onnxruntime import RapidOCR
             from PIL import Image
+            from rapidocr_onnxruntime import RapidOCR
 
             img = Image.open(image_path).convert("RGB")
             width, height = img.size
@@ -100,7 +99,7 @@ class DocumentGraphStep(BaseStep):
             self.logger.error("RapidOCR not installed. pip install rapidocr_onnxruntime")
             return None
 
-    async def _run_tesseract(self, image_path: str) -> Optional[OCRResult]:
+    async def _run_tesseract(self, image_path: str) -> OCRResult | None:
         try:
             import pytesseract
             from PIL import Image
@@ -130,7 +129,7 @@ class DocumentGraphStep(BaseStep):
         iw, ih = ocr.image_width or 1, ocr.image_height or 1
 
         nodes = []
-        for i, (word, box, conf) in enumerate(zip(ocr.words, ocr.boxes, ocr.confidences)):
+        for i, (word, box, conf) in enumerate(zip(ocr.words, ocr.boxes, ocr.confidences, strict=False)):
             x0, y0, x1, y1 = box
             nodes.append({
                 "id": f"w{i}",
@@ -175,10 +174,9 @@ class DocumentGraphStep(BaseStep):
             "lines": [{"y": round(ln[0]["cy"], 4), "nodes": [n["id"] for n in ln]} for ln in lines],
         }
 
-    def _spatial_relation(self, a: dict, b: dict) -> Optional[str]:
-        eps = 0.005
+    def _spatial_relation(self, a: dict, b: dict) -> str | None:
         dy = abs(a["cy"] - b["cy"])
-        dx = abs(a["cx"] - b["cx"])
+        abs(a["cx"] - b["cx"])
 
         same_line = dy <= self.y_tolerance
         if same_line:
@@ -290,11 +288,11 @@ class DocumentGraphStep(BaseStep):
         return pairs
 
     def _graph_to_markdown(self, graph: dict) -> str:
-        lines_list = sorted(graph.get("lines", []), key=lambda l: l["y"])
+        lines_list = sorted(graph.get("lines", []), key=lambda line: line["y"])
         node_map = {n["id"]: n for n in graph["nodes"]}
-        
+
         parts = []
-        
+
         # Add key-value pairs as structured hints at the top
         kv_pairs = graph.get("kv_pairs", [])
         if kv_pairs:
@@ -302,7 +300,7 @@ class DocumentGraphStep(BaseStep):
             for kv in kv_pairs:
                 parts.append(f"- {kv['label']}: {kv['value']}")
             parts.append("")
-        
+
         # Add line-by-line text
         parts.append("## Document Text")
         for line in lines_list:
@@ -311,7 +309,7 @@ class DocumentGraphStep(BaseStep):
             )
             if line_text:
                 parts.append(line_text)
-        
+
         return "\n".join(parts)
 
     def _graph_to_text(self, graph: dict) -> str:

@@ -13,10 +13,9 @@ Types: invoice, contract, purchase_order, delivery_note,
 import base64
 import logging
 from collections import Counter
-from typing import Optional
 
+from pipeline.base import BaseStep, PageResult, PipelineContext
 from pipeline.config import PipelineConfig
-from pipeline.base import BaseStep, PipelineContext, PageResult
 
 logger = logging.getLogger("pipeline.document_classifier")
 

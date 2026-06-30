@@ -9,7 +9,7 @@ Used to:
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,9 @@ FRENCH_STOP_WORDS = {
     "tous", "toutes", "autre", "autres", "meme", "comme", "ainsi", "plus",
     "moins", "tres", "bien", "aussi", "fait", "faire", "son", "sa", "ses",
     "leur", "leurs", "notre", "votre", "mon", "ma", "mes", "ton", "ta", "tes",
-    "y", "se", "je", "tu", "me", "te", "se", "ont", "ete", "ont", "est",
-    "prix", "total", "facture", "date", "adresse", "numero", "description",
+    "y", "se", "je", "tu", "me", "te", "ont", "ete", "prix", "total", "facture", "date", "adresse", "numero", "description",
     "quantite", "unite", "montant", "tva", "remise", "net", "payer", "client",
-    "fournisseur", "societe", "sar", "sarl", "sa", "sas",
+    "fournisseur", "societe", "sar", "sarl", "sas",
 }
 
 ENGLISH_STOP_WORDS = {
@@ -84,7 +83,7 @@ STOP_WORDS_BY_LANG = {
 class LanguageDetector:
     """Detects document language and provides language-specific resources."""
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self._detector = None
         self._load_detector()
@@ -107,7 +106,7 @@ class LanguageDetector:
             return "en"
 
         try:
-            from langdetect import detect, LangDetectException
+            from langdetect import detect
             clean = text[:2000].strip()
             if len(clean) < 20:
                 return "en"
@@ -120,11 +119,11 @@ class LanguageDetector:
         """Get stop words for a language."""
         return STOP_WORDS_BY_LANG.get(lang, ENGLISH_STOP_WORDS)
 
-    def get_field_synonyms(self, lang: str) -> Dict[str, List[str]]:
+    def get_field_synonyms(self, lang: str) -> dict[str, list[str]]:
         """Get field name synonyms for a language."""
         return LANGUAGE_FIELD_SYNONYMS.get(lang, LANGUAGE_FIELD_SYNONYMS["en"])
 
-    def detect_and_report(self, text: str) -> Dict[str, Any]:
+    def detect_and_report(self, text: str) -> dict[str, Any]:
         """Detect language and return full report."""
         lang = self.detect(text)
         return {

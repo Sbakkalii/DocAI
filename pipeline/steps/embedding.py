@@ -8,11 +8,12 @@ Preferred text source can be overridden via step_config_overrides.embedding_text
 
 import asyncio
 import functools
-import numpy as np
-from typing import Any, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
+import numpy as np
+
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class EmbeddingStep(BaseStep):
@@ -23,7 +24,7 @@ class EmbeddingStep(BaseStep):
         super().__init__(config)
         self.model_name = config.embedding.model
         self.device = config.embedding.device
-        self._model: Optional[Any] = None
+        self._model: Any | None = None
         self._text_source = "auto"
 
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
@@ -49,7 +50,7 @@ class EmbeddingStep(BaseStep):
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer("all-MiniLM-L6-v2")
             else:
-                from transformers import AutoTokenizer, AutoModel
+                from transformers import AutoModel, AutoTokenizer
                 self._tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
                 self._model = AutoModel.from_pretrained("bert-base-uncased")
 
@@ -72,7 +73,6 @@ class EmbeddingStep(BaseStep):
             ocr_text = graph_text
 
         prefer_vlm = self._text_source == "vlm"
-        prefer_ocr = self._text_source == "ocr"
 
         if (prefer_vlm or self._text_source == "auto") and vlm_text:
             return await asyncio.to_thread(

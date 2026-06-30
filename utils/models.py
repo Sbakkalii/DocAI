@@ -8,9 +8,9 @@ with automatic validation, serialization, and clear error messages.
 
 import re
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Union
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any
 
+from pydantic import BaseModel, Field, field_validator
 
 # ─────────────────────────────────────────────────────────────────────
 # Document Processing
@@ -24,7 +24,7 @@ class DocumentChunk(BaseModel):
     overlap: int = 0
     content_hash: str
     file_path: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class DocumentMetadata(BaseModel):
@@ -34,7 +34,7 @@ class DocumentMetadata(BaseModel):
     file_size: int = 0
     page_count: int = 0
     word_count: int = 0
-    language: Optional[str] = None
+    language: str | None = None
     processed_at: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -47,22 +47,22 @@ class Entity(BaseModel):
     text: str
     entity_type: str
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
-    start_pos: Optional[int] = None
-    end_pos: Optional[int] = None
+    start_pos: int | None = None
+    end_pos: int | None = None
 
 
 class SentimentAnalysis(BaseModel):
     """Sentiment analysis result"""
     overall_sentiment: str
     score: float = Field(ge=-1.0, le=1.0, default=0.0)
-    aspects: Dict[str, float] = Field(default_factory=dict)
+    aspects: dict[str, float] = Field(default_factory=dict)
 
 
 class DocumentClassification(BaseModel):
     """Document classification result"""
-    document_type: Optional[str] = None
-    domain: Optional[str] = None
-    formality: Optional[str] = None
+    document_type: str | None = None
+    domain: str | None = None
+    formality: str | None = None
     confidence: float = Field(ge=0.0, le=1.0, default=0.0)
 
 
@@ -75,7 +75,7 @@ class KGNode(BaseModel):
     id: str
     type: str
     label: str
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class KGEdge(BaseModel):
@@ -84,16 +84,16 @@ class KGEdge(BaseModel):
     source: str
     target: str
     type: str
-    properties: Dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, Any] = Field(default_factory=dict)
 
 
 class KnowledgeGraph(BaseModel):
     """Complete knowledge graph structure"""
-    session_id: Optional[str] = None
-    nodes: List[KGNode] = Field(default_factory=list)
-    edges: List[KGEdge] = Field(default_factory=list)
-    field_traces: Dict[str, Any] = Field(default_factory=dict)
-    statistics: Dict[str, Any] = Field(default_factory=dict)
+    session_id: str | None = None
+    nodes: list[KGNode] = Field(default_factory=list)
+    edges: list[KGEdge] = Field(default_factory=list)
+    field_traces: dict[str, Any] = Field(default_factory=dict)
+    statistics: dict[str, Any] = Field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -102,21 +102,21 @@ class KnowledgeGraph(BaseModel):
 
 class OCRResult(BaseModel):
     """OCR output with text and bounding boxes"""
-    words: List[str]
-    boxes: List[List[int]]
-    confidences: List[float]
+    words: list[str]
+    boxes: list[list[int]]
+    confidences: list[float]
     image_width: int
     image_height: int
 
     @field_validator("boxes")
     @classmethod
-    def validate_boxes(cls, v: List[List[int]], info) -> List[List[int]]:
+    def validate_boxes(cls, v: list[list[int]], info) -> list[list[int]]:
         words = info.data.get("words", [])
         if v and words and len(v) != len(words):
             raise ValueError(f"Number of boxes ({len(v)}) must match number of words ({len(words)})")
         return v
 
-    def to_normalized_boxes(self) -> List[List[int]]:
+    def to_normalized_boxes(self) -> list[list[int]]:
         normalized = []
         for box in self.boxes:
             x0 = int(1000 * box[0] / self.image_width)
@@ -132,7 +132,7 @@ class OCRResult(BaseModel):
 
     def to_text_with_layout(self) -> str:
         lines = []
-        for word, box in zip(self.words, self.boxes):
+        for word, box in zip(self.words, self.boxes, strict=False):
             lines.append(f"[{box[0]},{box[1]},{box[2]},{box[3]}] {word}")
         return "\n".join(lines)
 
@@ -161,7 +161,7 @@ class OCRResult(BaseModel):
 
         # ── helpers ──────────────────────────────────────────────────────
         def _char_width_estimate() -> float:
-            widths = [(b[2] - b[0]) / max(len(w), 1) for w, b in zip(self.words, self.boxes)]
+            widths = [(b[2] - b[0]) / max(len(w), 1) for w, b in zip(self.words, self.boxes, strict=False)]
             if not widths:
                 return 8.0
             return sorted(widths)[len(widths) // 2]
@@ -245,7 +245,7 @@ class OCRResult(BaseModel):
 
         # ── 1. sort items by (y0, x0) ────────────────────────────────────
         items = sorted(
-            zip(self.words, self.boxes, self.confidences),
+            zip(self.words, self.boxes, self.confidences, strict=False),
             key=lambda x: (x[1][1], x[1][0]),
         )
 
@@ -253,8 +253,8 @@ class OCRResult(BaseModel):
         med_h = _line_height_estimate()
         line_threshold = max(med_h * 0.6, 5.0)
 
-        lines: List[List[tuple]] = []
-        cur: List[tuple] = [items[0]]
+        lines: list[list[tuple]] = []
+        cur: list[tuple] = [items[0]]
         for item in items[1:]:
             _, box, _ = item
             _, prev_box, _ = cur[-1]
@@ -288,7 +288,7 @@ class OCRResult(BaseModel):
         else:
             sec_threshold = med_h * max_line_gap_ratio
 
-        sections: List[tuple] = []
+        sections: list[tuple] = []
         cur_start = 0
         for i, gap in enumerate(row_gaps):
             if gap > sec_threshold:
@@ -297,7 +297,7 @@ class OCRResult(BaseModel):
         sections.append((cur_start, len(lines) - 1))
 
         # ── 5. process each section independently ────────────────────────
-        md_parts: List[str] = []
+        md_parts: list[str] = []
 
         for sec_idx, (sec_start, sec_end) in enumerate(sections):
             sec_lines = lines[sec_start:sec_end + 1]
@@ -352,7 +352,7 @@ class OCRResult(BaseModel):
                     tbl_start = tbl_end
             else:
                 # ── paragraph / header / multi-column formatting ─────────
-                for local_idx, (line_items, nc) in enumerate(zip(sec_lines, sec_n_cells)):
+                for local_idx, (line_items, nc) in enumerate(zip(sec_lines, sec_n_cells, strict=False)):
                     if nc >= 3:
                         cells = _cells_for_row(line_items, gap_threshold)
                         text = " | ".join(_cell_text(c) for c in cells)
@@ -374,16 +374,16 @@ class OCRResult(BaseModel):
 
 class GroundTruth(BaseModel):
     """Parsed TSV ground truth annotation"""
-    words: List[str] = Field(default_factory=list)
-    boxes: List[List[int]] = Field(default_factory=list)
-    labels: List[str] = Field(default_factory=list)
+    words: list[str] = Field(default_factory=list)
+    boxes: list[list[int]] = Field(default_factory=list)
+    labels: list[str] = Field(default_factory=list)
     image_width: int = 0
     image_height: int = 0
 
-    def to_field_dict(self) -> Dict[str, Any]:
+    def to_field_dict(self) -> dict[str, Any]:
         """Convert to structured field dict for evaluation"""
         fields = {}
-        for word, box, label in zip(self.words, self.boxes, self.labels):
+        for word, box, label in zip(self.words, self.boxes, self.labels, strict=False):
             if label == "O":
                 continue
             if label not in fields:
@@ -397,20 +397,20 @@ class FieldTrace(BaseModel):
     value: Any
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
     validation_status: str = "unknown"
-    source_words: List[Dict[str, Any]] = Field(default_factory=list)
-    bounding_boxes: List[List[int]] = Field(default_factory=list)
-    few_shot_sources: List[str] = Field(default_factory=list)
-    rule_sources: List[str] = Field(default_factory=list)
-    validation_issues: List[Dict[str, Any]] = Field(default_factory=list)
+    source_words: list[dict[str, Any]] = Field(default_factory=list)
+    bounding_boxes: list[list[int]] = Field(default_factory=list)
+    few_shot_sources: list[str] = Field(default_factory=list)
+    rule_sources: list[str] = Field(default_factory=list)
+    validation_issues: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class InvoiceKnowledgeGraph(BaseModel):
     """Knowledge graph for invoice extraction with traceability"""
-    nodes: List[KGNode] = Field(default_factory=list)
-    edges: List[KGEdge] = Field(default_factory=list)
-    field_traces: Dict[str, FieldTrace] = Field(default_factory=dict)
-    statistics: Dict[str, Any] = Field(default_factory=dict)
-    supplier_entity: Optional[Dict[str, Any]] = None
+    nodes: list[KGNode] = Field(default_factory=list)
+    edges: list[KGEdge] = Field(default_factory=list)
+    field_traces: dict[str, FieldTrace] = Field(default_factory=dict)
+    statistics: dict[str, Any] = Field(default_factory=dict)
+    supplier_entity: dict[str, Any] | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -422,8 +422,8 @@ class ValidationIssue(BaseModel):
     rule: str
     severity: str
     message: str
-    fields_involved: List[str]
-    details: Optional[Dict[str, Any]] = None
+    fields_involved: list[str]
+    details: dict[str, Any] | None = None
 
     @field_validator("severity")
     @classmethod
@@ -437,9 +437,9 @@ class ValidationIssue(BaseModel):
 class ValidationResult(BaseModel):
     """Complete validation result for one invoice"""
     is_valid: bool
-    issues: List[ValidationIssue] = Field(default_factory=list)
-    confidence_adjustments: Dict[str, float] = Field(default_factory=dict)
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    issues: list[ValidationIssue] = Field(default_factory=list)
+    confidence_adjustments: dict[str, float] = Field(default_factory=dict)
+    stats: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def error_count(self) -> int:
@@ -449,7 +449,7 @@ class ValidationResult(BaseModel):
     def warning_count(self) -> int:
         return sum(1 for i in self.issues if i.severity == "warning")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.model_dump()
 
 
@@ -462,8 +462,8 @@ class Contradiction(BaseModel):
     type: str
     severity: str
     message: str
-    fields: List[str] = Field(default_factory=list)
-    details: Optional[Dict[str, Any]] = None
+    fields: list[str] = Field(default_factory=list)
+    details: dict[str, Any] | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -473,21 +473,21 @@ class Contradiction(BaseModel):
 class SupplierEntity(BaseModel):
     """A canonical supplier entity with all its variations"""
     canonical_name: str
-    variations: List[str] = Field(default_factory=list)
-    invoice_ids: List[str] = Field(default_factory=list)
+    variations: list[str] = Field(default_factory=list)
+    invoice_ids: list[str] = Field(default_factory=list)
     total_invoices: int = 0
     total_amount: float = 0.0
-    first_seen: Optional[str] = None
-    last_seen: Optional[str] = None
-    addresses: List[str] = Field(default_factory=list)
+    first_seen: str | None = None
+    last_seen: str | None = None
+    addresses: list[str] = Field(default_factory=list)
     confidence: float = Field(ge=0.0, le=1.0, default=1.0)
 
 
 class SupplierGraph(BaseModel):
     """Knowledge graph of supplier entities"""
-    nodes: List[KGNode] = Field(default_factory=list)
-    edges: List[KGEdge] = Field(default_factory=list)
-    statistics: Dict[str, Any] = Field(default_factory=dict)
+    nodes: list[KGNode] = Field(default_factory=list)
+    edges: list[KGEdge] = Field(default_factory=list)
+    statistics: dict[str, Any] = Field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -497,18 +497,18 @@ class SupplierGraph(BaseModel):
 class InvoiceExtractionResult(BaseModel):
     """Complete result for a single invoice extraction"""
     image_path: str
-    extracted_fields: Dict[str, Any]
+    extracted_fields: dict[str, Any]
     knowledge_graph: InvoiceKnowledgeGraph
-    validation: Optional[ValidationResult] = None
-    contradictions: List[Contradiction] = Field(default_factory=list)
-    ground_truth_fields: Optional[Dict[str, Any]] = None
-    accuracy: Dict[str, Any] = Field(default_factory=dict)
+    validation: ValidationResult | None = None
+    contradictions: list[Contradiction] = Field(default_factory=list)
+    ground_truth_fields: dict[str, Any] | None = None
+    accuracy: dict[str, Any] = Field(default_factory=dict)
     latency_ms: float = 0.0
     ocr_word_count: int = 0
     few_shot_examples: int = 0
     rag_rules_used: int = 0
     rag_templates_used: int = 0
-    annotated_image_path: Optional[str] = None
+    annotated_image_path: str | None = None
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -548,11 +548,11 @@ class BenchmarkSummary(BaseModel):
     """Complete benchmark summary"""
     latency: LatencyMetrics = Field(default_factory=LatencyMetrics)
     throughput: ThroughputMetrics = Field(default_factory=ThroughputMetrics)
-    accuracy: Dict[str, Any] = Field(default_factory=dict)
-    traceability: Dict[str, Any] = Field(default_factory=dict)
-    validation: Dict[str, Any] = Field(default_factory=dict)
-    supplier_graph: Dict[str, Any] = Field(default_factory=dict)
-    cache: Dict[str, Any] = Field(default_factory=dict)
+    accuracy: dict[str, Any] = Field(default_factory=dict)
+    traceability: dict[str, Any] = Field(default_factory=dict)
+    validation: dict[str, Any] = Field(default_factory=dict)
+    supplier_graph: dict[str, Any] = Field(default_factory=dict)
+    cache: dict[str, Any] = Field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -564,9 +564,9 @@ class FieldRule(BaseModel):
     field_name: str
     description: str
     description_fr: str = ""
-    format_patterns: List[str] = Field(default_factory=list)
-    layout_hints: List[str] = Field(default_factory=list)
-    examples: List[str] = Field(default_factory=list)
+    format_patterns: list[str] = Field(default_factory=list)
+    layout_hints: list[str] = Field(default_factory=list)
+    examples: list[str] = Field(default_factory=list)
     confidence_boost: float = 0.0
 
     def to_text(self, locale: str = "en") -> str:
@@ -587,8 +587,8 @@ class TemplateHint(BaseModel):
     template_id: str
     description: str
     description_fr: str = ""
-    field_positions: Dict[str, str] = Field(default_factory=dict)
-    common_patterns: List[str] = Field(default_factory=list)
+    field_positions: dict[str, str] = Field(default_factory=dict)
+    common_patterns: list[str] = Field(default_factory=list)
 
     def to_text(self, locale: str = "en") -> str:
         desc = self.description_fr if locale == "fr" and self.description_fr else self.description

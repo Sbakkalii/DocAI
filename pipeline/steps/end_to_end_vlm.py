@@ -15,10 +15,9 @@ import base64
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.schemas import build_schema_for_document_type
 
 
@@ -159,7 +158,7 @@ class EndToEndVLMStep(BaseStep):
             self.logger.info(f"Using multi-VLM ensemble with models: {self.config.ensemble_vlm.models}")
             await self._ensemble_extract(ctx, pages_with_images, doc_type)
         else:
-            for i, page in pages_with_images:
+            for _i, page in pages_with_images:
                 self.logger.info(f"  Page {page.page_number}: image_path={page.metadata.get('image_path')}")
 
             self.logger.info(f"Processing {len(pages_with_images)} pages in parallel")
@@ -171,7 +170,7 @@ class EndToEndVLMStep(BaseStep):
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for (i, page), result in zip(pages_with_images, results):
+            for (_i, page), result in zip(pages_with_images, results, strict=False):
                 if isinstance(result, Exception):
                     self.logger.error(f"Page {page.page_number} failed: {result}")
                     continue
@@ -258,7 +257,7 @@ class EndToEndVLMStep(BaseStep):
             )
 
     @staticmethod
-    def _merge_ensemble_results(all_fields: Dict[str, dict], strategy: str) -> dict:
+    def _merge_ensemble_results(all_fields: dict[str, dict], strategy: str) -> dict:
         """Merge results from multiple models using voting or weighting."""
         if not all_fields:
             return {"fields": {}, "agreement": 0.0}
@@ -325,8 +324,8 @@ class EndToEndVLMStep(BaseStep):
 
         self.logger.info("VLM fallback triggered — enabling OCR+LLM steps")
 
-        from pipeline.steps.ocr import OCRStep
         from pipeline.steps.llm_extraction import LLMExtractionStep
+        from pipeline.steps.ocr import OCRStep
 
         ocr_step = OCRStep(self.config)
         llm_step = LLMExtractionStep(self.config)
@@ -524,7 +523,7 @@ class EndToEndVLMStep(BaseStep):
 
         try:
             import json
-            with open(corrections_file, "r") as f:
+            with open(corrections_file) as f:
                 all_corrections = json.load(f)
 
             relevant = []

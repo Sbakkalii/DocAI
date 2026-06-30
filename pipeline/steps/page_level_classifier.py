@@ -7,16 +7,12 @@ Produces a manifest: { page_1: "INVOICE", page_2: "DELIVERY_NOTE", ... }
 """
 
 import asyncio
-import logging
 import os
-from pathlib import Path
-from typing import Any, Dict
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
-
-PAGE_TYPE_KEYWORDS: Dict[str, list[str]] = {
+PAGE_TYPE_KEYWORDS: dict[str, list[str]] = {
     "INVOICE": ["invoice", "facture", "bill", "amount due", "total due", "remittance"],
     "DELIVERY_NOTE": ["delivery note", "packing slip", "bon de livraison", "received", "goods"],
     "PURCHASE_ORDER": ["purchase order", "po number", "order date", "buyer"],
@@ -40,15 +36,15 @@ class PageLevelClassifierStep(BaseStep):
         if not ctx.pages:
             return ctx
 
-        page_types: Dict[int, str] = {}
-        page_confidences: Dict[int, float] = {}
+        page_types: dict[int, str] = {}
+        page_confidences: dict[int, float] = {}
 
         sem = asyncio.Semaphore(2)
 
         async def classify_page(page):
             async with sem:
                 page_text = page.metadata.get("page_text", "") or ""
-                img_path = page.metadata.get("image_path", "")
+                page.metadata.get("image_path", "")
 
                 detected_type, confidence = self._keyword_classify(page_text)
 
@@ -99,6 +95,7 @@ class PageLevelClassifierStep(BaseStep):
             import base64
             import json
             import re
+
             from ollama import AsyncClient
 
             with open(img_path, "rb") as f:
@@ -136,7 +133,7 @@ class PageLevelClassifierStep(BaseStep):
             return "UNKNOWN", 0.0
 
     @staticmethod
-    def _group_contiguous(page_types: Dict[int, str]) -> list[dict]:
+    def _group_contiguous(page_types: dict[int, str]) -> list[dict]:
         sorted_pages = sorted(page_types.items())
         groups = []
         current_type = None

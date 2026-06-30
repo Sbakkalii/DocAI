@@ -1,12 +1,12 @@
-import copy
-from typing import Dict, List, Any, Optional, Literal
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 
 class IngestionConfig(BaseModel):
     enabled: bool = True
     max_pages: int = 100
-    supported_formats: List[str] = ["pdf", "jpg", "jpeg", "png", "tiff", "docx", "txt"]
+    supported_formats: list[str] = ["pdf", "jpg", "jpeg", "png", "tiff", "docx", "txt"]
     chunk_size: int = 1000
     chunk_overlap: int = 200
 
@@ -45,7 +45,7 @@ class TableExtractionConfig(BaseModel):
     enabled: bool = True
 
 
-DOCUMENT_TYPE_FIELDS: Dict[str, List[str]] = {
+DOCUMENT_TYPE_FIELDS: dict[str, list[str]] = {
     "invoice": [
         "NUMBER", "SUPPLIER", "ADDRESS", "INVOICE_DATE",
         "TOTAL", "TOTAL_AMOUNT",
@@ -77,7 +77,7 @@ DOCUMENT_TYPE_FIELDS: Dict[str, List[str]] = {
 }
 
 # Recommended models per document type — auto-selected when classifier detects the category
-DOCUMENT_TYPE_RECOMMENDED_MODEL: Dict[str, str] = {
+DOCUMENT_TYPE_RECOMMENDED_MODEL: dict[str, str] = {
     "invoice": "phi3:mini",
     "contract": "phi3:mini",
     "purchase_order": "phi3:mini",
@@ -99,7 +99,7 @@ class EndToEndVLMConfig(BaseModel):
     provider: Literal["ollama", "vllm"] = "ollama"
     vllm_url: str = "http://localhost:8000/v1"
     guided_json: bool = True
-    target_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
+    target_fields: list[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
     ollama_host: str = "http://localhost:11434"
     max_retries: int = 2
     stream: bool = False
@@ -109,7 +109,7 @@ class EndToEndVLMConfig(BaseModel):
 
 class EnsembleVLMConfig(BaseModel):
     enabled: bool = False
-    models: List[str] = Field(default_factory=lambda: ["gemma3:4b", "deepseek-ocr"])
+    models: list[str] = Field(default_factory=lambda: ["gemma3:4b", "deepseek-ocr"])
     strategy: Literal["majority_vote", "confidence_weighted"] = "majority_vote"
     max_concurrency: int = 4
     timeout: int = 120
@@ -127,7 +127,7 @@ class RetrievalConfig(BaseModel):
     strategy: Literal["dense", "sparse", "hybrid"] = "hybrid"
     k: int = 5
     rrf_k: int = 60
-    store_dir: Optional[str] = None
+    store_dir: str | None = None
 
 
 class RAGConfig(BaseModel):
@@ -153,18 +153,18 @@ class LLMExtractionConfig(BaseModel):
     temperature: float = 0.1
     max_tokens: int = 4096
     schema_name: str = "default"
-    schemas: Dict[str, Dict[str, Any]] = {}
-    target_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
+    schemas: dict[str, dict[str, Any]] = {}
+    target_fields: list[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
     max_concurrency: int = 3
 
 
-AVAILABLE_MODELS: List[str] = [
+AVAILABLE_MODELS: list[str] = [
     "phi3:mini",
     "llama3.2:3b-instruct-q4_K_M",
     "llama3.2:1b",
 ]
 
-AVAILABLE_VLM_MODELS: List[str] = [
+AVAILABLE_VLM_MODELS: list[str] = [
     "gemma3:4b",
     "deepseek-ocr",
     "moondream",
@@ -173,9 +173,9 @@ AVAILABLE_VLM_MODELS: List[str] = [
 
 class ValidationConfig(BaseModel):
     enabled: bool = True
-    checks: List[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "ocr_evidence"]
+    checks: list[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "ocr_evidence"]
     arithmetic_tolerance: float = 0.02
-    required_fields: List[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
+    required_fields: list[str] = Field(default_factory=lambda: list(DEFAULT_TARGET_FIELDS))
 
 
 class ParallelStreamSplitterConfig(BaseModel):
@@ -214,13 +214,13 @@ class ReducePhaseStitchingConfig(BaseModel):
 
 class GlobalValidationConfig(BaseModel):
     enabled: bool = False
-    checks: List[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "merge_consistency"]
+    checks: list[str] = ["required_fields", "arithmetic", "format", "currency", "ranges", "merge_consistency"]
     arithmetic_tolerance: float = 0.02
 
 
 class CrossPageConfig(BaseModel):
     enabled: bool = False
-    checks: List[str] = ["table_merge", "entity_link", "reference_resolve"]
+    checks: list[str] = ["table_merge", "entity_link", "reference_resolve"]
     similarity_threshold: float = 0.8
 
 
@@ -296,17 +296,17 @@ class MultiTaskConfig(BaseModel):
     enabled: bool = False
     model: str = "phi3:mini"
     ollama_host: str = ""
-    tasks: List[str] = Field(default_factory=lambda: list(MULTI_TASK_TASK_INFO.keys()))
+    tasks: list[str] = Field(default_factory=lambda: list(MULTI_TASK_TASK_INFO.keys()))
 
 
 class EvaluationConfig(BaseModel):
     enabled: bool = True
-    metrics: List[str] = ["faithfulness", "accuracy", "confidence", "numeric_delta", "format_compliance", "detection_rate"]
-    ground_truth_path: Optional[str] = None
+    metrics: list[str] = ["faithfulness", "accuracy", "confidence", "numeric_delta", "format_compliance", "detection_rate"]
+    ground_truth_path: str | None = None
     fuzzy_threshold: float = 0.8
 
 
-STEP_CONFIG_MAP: Dict[str, str] = {
+STEP_CONFIG_MAP: dict[str, str] = {
     "ingestion": "ingestion",
     "vision_ocr": "vision_ocr",
     "ocr": "ocr",
@@ -397,13 +397,13 @@ class PipelineConfig(BaseModel):
     dspydantic: DSPydanticOptimizationConfig = Field(default_factory=DSPydanticOptimizationConfig)
     headroom: HeadroomConfig = Field(default_factory=HeadroomConfig)
 
-    session_id: Optional[str] = None
-    original_filename: Optional[str] = None
+    session_id: str | None = None
+    original_filename: str | None = None
     output_dir: str = "output/pipeline"
     log_level: str = "INFO"
     max_execution_time: int = 3600
 
-    def get_enabled_steps(self) -> List[str]:
+    def get_enabled_steps(self) -> list[str]:
         return [
             name for name in STEP_ORDER
             if name in STEP_CONFIG_MAP and getattr(self, STEP_CONFIG_MAP[name]).enabled

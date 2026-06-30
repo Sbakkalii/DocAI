@@ -9,11 +9,9 @@ ground truth examples, then injects them into DocAI's JSON schemas.
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import dspy
-
-from dspydantic import Prompter, Example
+from dspydantic import Example, Prompter
 from dspydantic.types import OptimizationResult
 
 logger = logging.getLogger(__name__)
@@ -91,7 +89,7 @@ class SchemaOptimizer:
 
     def optimize(
         self,
-        examples: List[Example],
+        examples: list[Example],
         sequential: bool = True,
         parallel_fields: bool = True,
         verbose: bool = True,
@@ -126,7 +124,7 @@ class SchemaOptimizer:
 
         return result
 
-    def _save_descriptions(self, descriptions: Dict[str, str]):
+    def _save_descriptions(self, descriptions: dict[str, str]):
         """Cache optimized descriptions to disk."""
         all_descriptions = load_optimized_descriptions()
         all_descriptions[self.doc_type] = descriptions
@@ -142,9 +140,9 @@ class SchemaOptimizer:
 
 
 def load_optimized_descriptions(
-    doc_type: Optional[str] = None,
-    path: Optional[Path] = None,
-) -> Dict[str, Dict[str, str]]:
+    doc_type: str | None = None,
+    path: Path | None = None,
+) -> dict[str, dict[str, str]]:
     """Load cached optimized descriptions.
 
     Args:
@@ -170,7 +168,7 @@ def load_optimized_descriptions(
     return data
 
 
-def get_description_overrides(doc_type: str) -> Dict[str, str]:
+def get_description_overrides(doc_type: str) -> dict[str, str]:
     """Load optimized descriptions for a document type as field → description map.
 
     Returns empty dict if no optimized descriptions exist.
@@ -179,7 +177,7 @@ def get_description_overrides(doc_type: str) -> Dict[str, str]:
     return data.get(doc_type, {})
 
 
-def clear_optimized_cache(path: Optional[Path] = None):
+def clear_optimized_cache(path: Path | None = None):
     """Clear stored optimized descriptions."""
     filepath = path or OPTIMIZED_SCHEMAS_FILE
     if filepath.exists():

@@ -1,36 +1,83 @@
-import os
-import json
 import asyncio
+import json
 import logging
+import os
 import re
 import time
 import uuid
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Any
 
-from fastapi import FastAPI, UploadFile, File, Form, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-
-from starlette.datastructures import Headers
-from app.websocket_manager import ws_manager
-from app.pipeline_runner import start_pipeline, get_job
-from app.batch_eval import run_batch_eval
-from app.auth import API_KEY
-from app.batch_store import (
-    create_batch, add_batch_doc, update_batch_status, update_doc_status,
-    get_batch, get_batch_docs, get_batch_stats, get_next_queued_doc,
-    get_review_queue, get_review_queue_count, approve_doc,
+from fastapi import (
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
 )
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+
+from app.auth import API_KEY
+from app.batch_eval import run_batch_eval
+from app.batch_store import (
+    add_batch_doc,
+    approve_doc,
+    create_batch,
+    get_batch,
+    get_batch_docs,
+    get_batch_stats,
+    get_review_queue,
+    get_review_queue_count,
+    update_batch_status,
+    update_doc_status,
+)
+from app.pipeline_runner import get_job, start_pipeline
+from app.webhooks import clear_webhooks, get_webhooks, register_webhook
+from app.websocket_manager import ws_manager
 from pipeline.config import AVAILABLE_MODELS, DOCUMENT_TYPE_FIELDS
-from utils.structured_logger import setup_structured_logging, get_logger as slog
+from utils.structured_logger import setup_structured_logging
+
+# Load .env file (silent if not found)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 setup_structured_logging(level=log_level)
 logger = logging.getLogger("app")
 
-app = FastAPI(title="DocAI Pipeline", version="0.1.0")
+API_VERSION = "v1"
+
+app = FastAPI(
+    title="DocAI Pipeline",
+    version="0.1.0",
+    description="Local-first document intelligence pipeline for extracting structured data from invoices and business documents.",
+    docs_url="/docs",
+    redoc_url="/redoc",
+)
+
+# Rate limiting
+from app.rate_limit import limiter  # noqa: E402
+
+app.state.limiter = limiter
+app.add_exception_handler(429, lambda req, exc: JSONResponse(
+    status_code=429,
+    content={"detail": "Rate limit exceeded. Try again later."},
+))
+
+api_v1 = FastAPI(
+    title="DocAI Pipeline v1",
+    version="0.1.0",
+    docs_url=None,
+    redoc_url=None,
+)
 
 ALLOWED_ORIGINS = os.environ.get(
     "CORS_ORIGINS", "http://localhost:8000,http://localhost:5173,http://localhost:3000"
@@ -79,6 +126,9 @@ if frontend_dist.exists():
         index = frontend_dist / "index.html"
         if index.exists():
             html = index.read_text()
+            # Security note: API key is NOT injected into HTML in production.
+            # The frontend should call GET /api/config to retrieve the key at runtime.
+            # The meta tag approach below is kept for backward compat during development.
             if API_KEY:
                 meta = f'<meta name="api-key" content="{API_KEY}">'
                 html = html.replace("</head>", f"{meta}</head>")
@@ -90,9 +140,62 @@ else:
         return HTMLResponse("<h1>DocAI Pipeline</h1><p>Frontend not built. Run: cd frontend && npm install && npm run build</p>")
 
 
+# ═══════════════════════════════════════════════
+#  Health & Config
+# ═══════════════════════════════════════════════
+
+
 @app.get("/health")
-async def health():
+async def health_check():
+    """Liveness check — returns OK if the server is running."""
     return {"status": "ok"}
+
+
+@app.get("/api/health/ready")
+async def readiness_check():
+    """Readiness check — verifies dependencies (Ollama, cache)."""
+    ollama_ok = False
+    cache_ok = False
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get("http://localhost:11434/api/tags")
+            ollama_ok = resp.status_code == 200
+    except Exception:
+        pass
+
+    try:
+        from utils.cache_manager import get_shared_cache
+        cache = get_shared_cache()
+        stats = cache.get_stats()
+        cache_ok = stats.get("hit_rate", 0) >= 0
+    except Exception:
+        pass
+
+    status = "ok" if ollama_ok and cache_ok else "degraded"
+    return {
+        "status": status,
+        "version": "0.1.0",
+        "ollama_available": ollama_ok,
+        "cache_healthy": cache_ok,
+    }
+
+
+@app.get("/api/config")
+def get_app_config():
+    """Return public application configuration."""
+    return {
+        "version": "0.1.0",
+        "api_version": API_VERSION,
+        "llm_provider": os.environ.get("LLM_PROVIDER", "ollama"),
+        "ollama_host": os.environ.get("OLLAMA_HOST", "http://localhost:11434"),
+        "features": {
+            "headroom_enabled": False,
+            "dspydantic_enabled": False,
+            "ocr_engines": ["rapidocr", "tesseract"],
+        },
+    }
 
 
 @app.get("/api/cache/stats")
@@ -220,7 +323,7 @@ async def upload_document(
             step_overrides["llm_extraction"] = {"target_fields": field_list}
             step_overrides["end_to_end_vlm"] = {"target_fields": field_list}
 
-    job = await start_pipeline(
+    await start_pipeline(
         session_id=session_id,
         input_path=str(save_path),
         config_preset=effective_preset,
@@ -243,7 +346,7 @@ def dataset_model_fields(model: str):
     if not model_dir.exists():
         raise HTTPException(status_code=404, detail=f"Model directory not found: {model}")
     ann_dir = model_dir / "annotations"
-    fields: Dict[str, int] = {}
+    fields: dict[str, int] = {}
     for tsv_path in sorted(ann_dir.glob("*.tsv")):
         try:
             from pipeline.annotation_utils import load_ground_truth
@@ -252,7 +355,7 @@ def dataset_model_fields(model: str):
                 if label != "O":
                     fields[label] = fields.get(label, 0) + 1
         except Exception:
-            pass
+            logger.debug(f"Failed to load annotation {tsv_path}", exc_info=True)
     return {
         "model": model,
         "fields": dict(sorted(fields.items(), key=lambda x: -x[1])),
@@ -285,7 +388,7 @@ async def load_dataset_document(path: str = Form(...), filename: str = Form(""),
             step_overrides["end_to_end_vlm"] = {"target_fields": field_list}
 
     display_name = filename or doc_path.name
-    job = await start_pipeline(
+    await start_pipeline(
         session_id=session_id,
         input_path=str(save_path),
         config_preset=f"mode:{mode}",
@@ -341,7 +444,7 @@ async def compare_modes(session_id: str):
     sessions = []
     for mode in modes:
         mode_sid = str(uuid.uuid4()).replace("-", "")[:12]
-        mode_job = await start_pipeline(
+        await start_pipeline(
             session_id=mode_sid,
             input_path=input_path,
             config_preset=f"mode:{mode}",
@@ -402,9 +505,9 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
             if data == "ping":
                 await ws.send_json({"type": "pong"})
     except WebSocketDisconnect:
-        pass
+        logger.debug("WebSocket disconnected for session %s", session_id)
     except Exception:
-        pass
+        logger.warning("WebSocket error for session %s", session_id, exc_info=True)
     finally:
         if ping_task:
             ping_task.cancel()
@@ -412,7 +515,7 @@ async def websocket_endpoint(ws: WebSocket, session_id: str):
 
 
 @app.post("/api/pipeline/continue/{session_id}")
-async def continue_pipeline(session_id: str, body: Optional[Dict] = None):
+async def continue_pipeline(session_id: str, body: dict | None = None):
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -433,7 +536,7 @@ async def run_all_pipeline(session_id: str, request: Request):
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     # Apply mode from form data if the backend mode differs from the frontend's
     try:
         form_data = await request.form()
@@ -441,8 +544,8 @@ async def run_all_pipeline(session_id: str, request: Request):
         if mode and mode != job.mode:
             job.update_config(mode)
     except Exception:
-        pass  # Continue with run even if mode extraction fails
-    
+        logger.debug("Failed to extract mode from form data, continuing with run", exc_info=True)
+
     job.set_auto_run(True)
     return {"status": "running_all"}
 
@@ -457,7 +560,7 @@ async def stop_pipeline(session_id: str):
 
 
 @app.post("/api/pipeline/rerun/{session_id}/{step_name}")
-async def rerun_pipeline_step(session_id: str, step_name: str, body: Optional[Dict] = None):
+async def rerun_pipeline_step(session_id: str, step_name: str, body: dict | None = None):
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -475,18 +578,18 @@ async def rerun_pipeline_step(session_id: str, step_name: str, body: Optional[Di
 
 
 @app.post("/api/correct/{session_id}")
-async def save_corrections(session_id: str, body: Optional[Dict] = None):
+async def save_corrections(session_id: str, body: dict | None = None):
     job = get_job(session_id)
     if not job:
         raise HTTPException(status_code=404, detail="Session not found")
     if not body:
         return {"status": "ok", "applied": 0}
-    corrections: Dict = body.get("corrections", {})
+    corrections: dict = body.get("corrections", {})
     if not corrections:
         return {"status": "ok", "applied": 0}
     # Parse string values that are JSON arrays/objects back into Python types
-    parsed: Dict = {}
-    page_specific: Dict[int, Dict[str, Any]] = {}
+    parsed: dict = {}
+    page_specific: dict[int, dict[str, Any]] = {}
     for field, raw_value in corrections.items():
         if isinstance(raw_value, str):
             try:
@@ -586,9 +689,9 @@ def dataset_stats():
 
     total_images = 0
     total_annotations = 0
-    field_counts: Dict[str, int] = {}
-    model_stats: Dict[str, dict] = {}
-    field_label_counts: Dict[str, Dict[str, int]] = {}
+    field_counts: dict[str, int] = {}
+    model_stats: dict[str, dict] = {}
+    field_label_counts: dict[str, dict[str, int]] = {}
     total_value_length = 0
     value_length_count = 0
 
@@ -598,7 +701,7 @@ def dataset_stats():
         ann_dir = model_dir / "annotations"
         model_images = 0
         model_annotations = 0
-        model_field_counts: Dict[str, int] = {}
+        model_field_counts: dict[str, int] = {}
         sample_images = []
 
         for tsv_path in sorted(ann_dir.glob("*.tsv")):
@@ -606,7 +709,7 @@ def dataset_stats():
             try:
                 from pipeline.annotation_utils import load_ground_truth
                 gt = load_ground_truth(tsv_path)
-                for w, label in zip(gt.words, gt.labels):
+                for w, label in zip(gt.words, gt.labels, strict=False):
                     if label == "O":
                         continue
                     total_annotations += 1
@@ -633,14 +736,14 @@ def dataset_stats():
         total_images += model_images
 
     # Top frequent values per field
-    top_values: Dict[str, list] = {}
+    top_values: dict[str, list] = {}
     for label, val_counts in field_label_counts.items():
         sorted_vals = sorted(val_counts.items(), key=lambda x: -x[1])[:10]
         top_values[label] = [{"value": v, "count": c} for v, c in sorted_vals]
 
     # Field coverage across models
     num_models = len(model_stats)
-    field_coverage: Dict[str, int] = {}
+    field_coverage: dict[str, int] = {}
     for ms in model_stats.values():
         for f in ms.get("field_counts", {}):
             field_coverage[f] = field_coverage.get(f, 0) + 1
@@ -687,7 +790,7 @@ def list_dataset_documents(model: str = "", page: int = 1, per_page: int = 30, p
             try:
                 from pipeline.annotation_utils import load_ground_truth
                 gt = load_ground_truth(tsv_path)
-                field_summary: Dict[str, int] = {}
+                field_summary: dict[str, int] = {}
                 for label in gt.labels:
                     if label != "O":
                         field_summary[label] = field_summary.get(label, 0) + 1
@@ -706,7 +809,7 @@ def list_dataset_documents(model: str = "", page: int = 1, per_page: int = 30, p
 
     if per_model > 0:
         # Group docs by model, then slice per-model
-        model_docs: Dict[str, list] = {}
+        model_docs: dict[str, list] = {}
         for m in models_to_scan:
             model_docs[m] = build_docs(m)
 
@@ -775,7 +878,7 @@ async def default_qa_prompt(session_id: str):
 
     lines = [
         f"You are Ace, a friendly document QA assistant for a {doc_type} document. Respond with short, enthusiastic answers. Start each response with a brief acknowledgment (like 'Got it!', 'Sure thing!', 'Here you go!') then give the answer.",
-        f"This document contains the following extracted fields:",
+        "This document contains the following extracted fields:",
         *fields_summary[:30],
     ]
     if vendor:
@@ -811,13 +914,13 @@ async def list_qa_models():
                 if llm_models:
                     return {"models": llm_models}
     except Exception:
-        pass
+        logger.debug("Failed to query Ollama for QA models, falling back to defaults", exc_info=True)
     from pipeline.config import AVAILABLE_MODELS
     return {"models": list(AVAILABLE_MODELS)}
 
 
 @app.post("/api/qa/{session_id}")
-async def answer_question(session_id: str, body: Optional[Dict] = None):
+async def answer_question(session_id: str, body: dict | None = None):
     """Answer a natural language question about the document using extracted fields."""
     job = get_job(session_id)
     if not job:
@@ -915,7 +1018,7 @@ async def answer_question(session_id: str, body: Optional[Dict] = None):
                     if llm_models:
                         model_name = llm_models[0]
         except Exception:
-            pass
+            logger.debug("Failed to auto-detect QA model from Ollama", exc_info=True)
 
     if not model_name:
         model_name = "phi3:mini"
@@ -972,7 +1075,7 @@ async def batch_evaluation(body: dict):
     model_name = body.get("model", "phi3:mini")
     embedding_model = body.get("embedding_model", "e5")
     num_docs = min(int(body.get("num_docs", 10)), 200)
-    target_fields = body.get("target_fields", None)
+    target_fields = body.get("target_fields")
     with_optimization = body.get("with_optimization", False)
 
     result = await run_batch_eval(
@@ -1082,10 +1185,10 @@ def get_document_annotations(path: str = ""):
     if not p.exists():
         return {"annotations": []}
     try:
-        from pipeline.annotation_utils import load_ground_truth, ANNOTATION_COLORS
+        from pipeline.annotation_utils import ANNOTATION_COLORS, load_ground_truth
         gt = load_ground_truth(p)
         annotations = []
-        for w, box, label in zip(gt.words, gt.boxes, gt.labels):
+        for w, box, label in zip(gt.words, gt.boxes, gt.labels, strict=False):
             if label == "O":
                 continue
             annotations.append({
@@ -1146,8 +1249,9 @@ def serve_session_pdf(session_id: str):
     ext = input_path.suffix.lower()
     if ext == ".pdf":
         return FileResponse(str(input_path), media_type="application/pdf", filename=f"{session_id}.pdf")
-    from PIL import Image
     import io
+
+    from PIL import Image
     img = Image.open(input_path)
     buf = io.BytesIO()
     if img.mode in ("RGBA", "P"):
@@ -1172,7 +1276,7 @@ def download_result(session_id: str):
 # ═══════════════════════════════════════════════
 
 @app.post("/api/batch")
-async def create_batch_job(files: List[UploadFile] = File(...), priority: str = Form("normal")):
+async def create_batch_job(files: list[UploadFile] = File(...), priority: str = Form("normal")):
     """Accept a batch of files for async processing. Returns batch_id."""
     batch_id = create_batch(len(files), priority)
     output_dir = Path("output/pipeline") / batch_id
@@ -1283,8 +1387,65 @@ def review_approve(doc_id: str):
     return {"status": "approved", "doc_id": doc_id}
 
 
+# ═══════════════════════════════════════════════
+#  Webhooks
+# ═══════════════════════════════════════════════
+
+
+@app.post("/api/webhooks/register")
+async def register_webhook_endpoint(body: dict):
+    """Register a webhook URL for pipeline completion notifications."""
+    url = body.get("url", "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing webhook URL")
+    register_webhook(url)
+    return {"status": "registered", "url": url, "count": len(get_webhooks())}
+
+
+@app.get("/api/webhooks")
+async def list_webhooks():
+    return {"webhooks": get_webhooks()}
+
+
+@app.delete("/api/webhooks")
+async def clear_webhooks_endpoint():
+    clear_webhooks()
+    return {"status": "cleared"}
+
+
+# ── API Versioning Layer ──────────────────────────────────
+
+from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+
+
+class APIVersionMiddleware(BaseHTTPMiddleware):
+    """Rewrite /api/v1/* → /api/* so existing routes serve both prefixes."""
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/v1/"):
+            new_path = path.replace("/api/v1/", "/api/", 1)
+            request.scope["path"] = new_path
+            request.scope["raw_path"] = new_path.encode()
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(APIVersionMiddleware)
+logger.info("API versioning enabled — /api/v1/ routes available")
+
+# Request tracing  # noqa: E402
+from utils.observability import RequestIDMiddleware  # noqa: E402
+
+app.add_middleware(RequestIDMiddleware)
+logger.info("Request ID tracing enabled")
+
+
+# ── Startup ───────────────────────────────────────────────
+
 if __name__ == "__main__":
     import sys
+
     import uvicorn
     default_addr = f"0.0.0.0:{os.environ.get('APP_PORT', '8000')}"
     addr = sys.argv[1] if len(sys.argv) > 1 else default_addr

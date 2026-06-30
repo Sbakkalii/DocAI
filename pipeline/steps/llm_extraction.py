@@ -9,12 +9,11 @@ import asyncio
 import json
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from utils.language_detector import LANGUAGE_FIELD_SYNONYMS
-
 
 FRENCH_INDICATORS = [
     "tva", "ttc", "ht", "montant", "facture", "numéro", "numero",
@@ -131,7 +130,7 @@ class LLMExtractionStep(BaseStep):
         self._llm_client = LLMClient(llm_config)
         self.logger.info(f"LLM client initialized: {self.provider}/{self.model}")
 
-    async def _extract(self, page, language: str) -> Dict[str, Any]:
+    async def _extract(self, page, language: str) -> dict[str, Any]:
         """Extract fields from a page with language-aware prompting."""
         vlm_md = page.metadata.get("vlm_markdown", "")
         hybrid_md = page.metadata.get("hybrid_markdown", "")
@@ -238,7 +237,7 @@ class LLMExtractionStep(BaseStep):
 
         tfs = self.config.llm_extraction.target_fields
         line_targets = [f for f in tfs if f.startswith("LINE/")]
-        scalar_targets = [f for f in tfs if not f.startswith("LINE/")]
+        [f for f in tfs if not f.startswith("LINE/")]
         parts.extend([
             f"Target fields: {', '.join(tfs)}",
             "",
@@ -267,7 +266,7 @@ class LLMExtractionStep(BaseStep):
             f"   This replaces the {len(line_targets)} separate LINE/* fields.",
             "6. For EACH scalar field value, include the exact text as it appears in the document under an '_evidence' key.",
             "   The _evidence object maps each field name to the exact OCR text span (string or null).",
-            "", 
+            "",
         ])
 
         # Add static extraction example to guide the model
@@ -314,9 +313,8 @@ class LLMExtractionStep(BaseStep):
 
         return "\n".join(parts)
 
-    def _post_process_fields(self, extracted: Dict[str, Any]) -> Dict[str, Any]:
+    def _post_process_fields(self, extracted: dict[str, Any]) -> dict[str, Any]:
         """Clean up common extraction artifacts and normalize line items."""
-        import re
         line_array = None
         for val in extracted.values():
             if isinstance(val, list) and len(val) > 0 and isinstance(val[0], dict):
@@ -358,7 +356,7 @@ class LLMExtractionStep(BaseStep):
         return result
 
     @staticmethod
-    def _headroom_compress(content: str) -> Optional[str]:
+    def _headroom_compress(content: str) -> str | None:
         try:
             from docai.headroom_utils import compress_content
             return compress_content(content, target_ratio=0.5)

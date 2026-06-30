@@ -7,11 +7,10 @@ for passing data between steps.
 
 import logging
 import time
-import uuid
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
-from pathlib import Path
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from pipeline.config import PipelineConfig
 
@@ -20,17 +19,17 @@ from pipeline.config import PipelineConfig
 class PageResult:
     """Result for a single page"""
     page_number: int
-    page_type: Optional[str] = None
+    page_type: str | None = None
     page_type_confidence: float = 0.0
-    ocr_result: Optional[Any] = None
-    embedding: Optional[Any] = None
-    retrieved_examples: List[Any] = field(default_factory=list)
-    rag_rules: List[Any] = field(default_factory=list)
-    rag_templates: List[Any] = field(default_factory=list)
-    extracted_fields: Dict[str, Any] = field(default_factory=dict)
-    validation_result: Optional[Any] = None
-    knowledge_graph: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    ocr_result: Any | None = None
+    embedding: Any | None = None
+    retrieved_examples: list[Any] = field(default_factory=list)
+    rag_rules: list[Any] = field(default_factory=list)
+    rag_templates: list[Any] = field(default_factory=list)
+    extracted_fields: dict[str, Any] = field(default_factory=dict)
+    validation_result: Any | None = None
+    knowledge_graph: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -39,19 +38,19 @@ class PipelineContext:
     config: PipelineConfig
     session_id: str
     input_path: str
-    pages: List[PageResult] = field(default_factory=list)
-    document_type: Optional[str] = None
-    global_knowledge_graph: Optional[Dict[str, Any]] = None
-    evaluation_results: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    timing: Dict[str, float] = field(default_factory=dict)
-    on_progress: Optional[callable] = None
+    pages: list[PageResult] = field(default_factory=list)
+    document_type: str | None = None
+    global_knowledge_graph: dict[str, Any] | None = None
+    evaluation_results: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    timing: dict[str, float] = field(default_factory=dict)
+    on_progress: "Callable[..., Any] | None" = None
 
     def add_error(self, step: str, error: str):
         self.errors.append(f"[{step}] {error}")
 
-    def get_page(self, page_number: int) -> Optional[PageResult]:
+    def get_page(self, page_number: int) -> PageResult | None:
         for page in self.pages:
             if page.page_number == page_number:
                 return page

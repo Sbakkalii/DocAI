@@ -5,14 +5,9 @@ Runs validation on the stitched master JSON result.
 Implements agentic retry targeting the reduce phase first, then VLM extraction.
 """
 
-import asyncio
-import json
-import logging
-import os
-from typing import Any, Dict, List, Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.steps.validation import ValidationStep
 
 
@@ -53,17 +48,16 @@ class GlobalValidationStep(BaseStep):
             valid_result = await self._validation_step._validate(page, vendor_profile or {})
 
             merge_issues = ctx.metadata.get("merge_consistency_issues", [])
-            if merge_issues:
-                if valid_result and isinstance(valid_result, dict):
-                    existing_issues = valid_result.get("issues", [])
-                    existing_issues.extend(merge_issues)
-                    valid_result["issues"] = existing_issues
-                    valid_result["error_count"] = sum(
-                        1 for i in existing_issues if i.get("severity") == "error"
-                    )
-                    valid_result["warning_count"] = sum(
-                        1 for i in existing_issues if i.get("severity") == "warning"
-                    )
+            if merge_issues and valid_result and isinstance(valid_result, dict):
+                existing_issues = valid_result.get("issues", [])
+                existing_issues.extend(merge_issues)
+                valid_result["issues"] = existing_issues
+                valid_result["error_count"] = sum(
+                    1 for i in existing_issues if i.get("severity") == "error"
+                )
+                valid_result["warning_count"] = sum(
+                    1 for i in existing_issues if i.get("severity") == "warning"
+                )
 
             page.validation_result = valid_result
 
@@ -87,8 +81,8 @@ class GlobalValidationStep(BaseStep):
         return ctx
 
     def _run_merge_consistency_checks(self, ctx: PipelineContext, master: dict):
-        issues: List[dict] = []
-        page_extractions = ctx.metadata.get("page_extractions", [])
+        issues: list[dict] = []
+        ctx.metadata.get("page_extractions", [])
 
         total_from_line_items = self._compute_total_from_lines(master)
         extracted_total = master.get("TOTAL") or master.get("TOTAL_AMOUNT")
@@ -126,7 +120,7 @@ class GlobalValidationStep(BaseStep):
 
         ctx.metadata["merge_consistency_issues"] = issues
 
-    def _compute_total_from_lines(self, master: dict) -> Optional[float]:
+    def _compute_total_from_lines(self, master: dict) -> float | None:
         sub_totals = master.get("LINE/SUB_TOTAL", [])
         if sub_totals and isinstance(sub_totals, list):
             try:

@@ -6,15 +6,11 @@ Renders PDF pages as high-quality images (300 DPI) for VLM processing.
 Always enabled (foundation for all other steps).
 """
 
-import asyncio
 import hashlib
-import logging
-import time
 from pathlib import Path
-from typing import Any
 
+from pipeline.base import BaseStep, PageResult, PipelineContext
 from pipeline.config import PipelineConfig
-from pipeline.base import BaseStep, PipelineContext, PageResult
 
 
 class IngestionStep(BaseStep):
@@ -46,7 +42,7 @@ class IngestionStep(BaseStep):
 
         ctx.document_type = self._detect_document_type(ctx.pages)
         ctx.metadata["total_pages"] = len(ctx.pages)
-        ctx.metadata["input_files"] = len(set(p.metadata.get("source_file", "") for p in ctx.pages))
+        ctx.metadata["input_files"] = len({p.metadata.get("source_file", "") for p in ctx.pages})
 
         self.logger.info(f"Ingested {len(ctx.pages)} pages from {ctx.input_path}")
         return ctx

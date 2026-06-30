@@ -6,13 +6,13 @@ import csv
 import logging
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from utils.models import GroundTruth
 
 logger = logging.getLogger("pipeline.annotations")
 
-ANNOTATION_COLORS: Dict[str, str] = {
+ANNOTATION_COLORS: dict[str, str] = {
     "NUMBER": "#ff4757",
     "SUPPLIER": "#2ed573",
     "ADDRESS": "#1e90ff",
@@ -32,7 +32,7 @@ ANNOTATION_COLORS: Dict[str, str] = {
     "O": "#95a5a6",
 }
 
-FRAGMENT_TYPE_LABELS: Dict[str, str] = {
+FRAGMENT_TYPE_LABELS: dict[str, str] = {
     "title": "Title",
     "text": "Text",
     "table": "Table",
@@ -43,7 +43,7 @@ FRAGMENT_TYPE_LABELS: Dict[str, str] = {
 }
 
 
-def find_annotation_file(image_path: str, original_filename: Optional[str] = None) -> Optional[Path]:
+def find_annotation_file(image_path: str, original_filename: str | None = None) -> Path | None:
     """Find matching TSV annotation file for a given image path"""
     img = Path(image_path)
     stem = img.stem
@@ -82,10 +82,10 @@ def find_annotation_file(image_path: str, original_filename: Optional[str] = Non
 
 def load_ground_truth(tsv_path: Path, image_width: int = 0, image_height: int = 0) -> GroundTruth:
     """Parse TSV annotation file into GroundTruth model"""
-    words: List[str] = []
-    boxes: List[List[int]] = []
-    labels: List[str] = []
-    with open(tsv_path, "r") as f:
+    words: list[str] = []
+    boxes: list[list[int]] = []
+    labels: list[str] = []
+    with open(tsv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
             left = int(row.get("left", 0))
@@ -100,13 +100,13 @@ def load_ground_truth(tsv_path: Path, image_width: int = 0, image_height: int = 
     return GroundTruth(words=words, boxes=boxes, labels=labels, image_width=image_width, image_height=image_height)
 
 
-def match_predicted_fields(fields: Dict[str, Any], ocr_words: List[str], ocr_boxes: List[List[int]], ocr_width: int, ocr_height: int, evidence: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+def match_predicted_fields(fields: dict[str, Any], ocr_words: list[str], ocr_boxes: list[list[int]], ocr_width: int, ocr_height: int, evidence: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """Match extracted field values back to OCR word positions to produce predicted annotation boxes.
 
     Uses LLM-provided evidence (exact text spans) for precise matching when available.
     Falls back to fuzzy text search when evidence is missing.
     """
-    annotations: List[Dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
     evidence = evidence or {}
     ocr_words_lower = [w.lower() for w in ocr_words]
     field_text = " ".join(ocr_words)
@@ -166,7 +166,7 @@ def _normalize_number(s: str) -> str:
     return re.sub(r"[^\d]", "", s)
 
 
-def _find_text_span(target_lower: str, ocr_words_lower: List[str], ocr_words: List[str], field_text_lower: str) -> List[int]:
+def _find_text_span(target_lower: str, ocr_words_lower: list[str], ocr_words: list[str], field_text_lower: str) -> list[int]:
     """Find OCR word indices that match a target text span."""
     import re
     if len(ocr_words_lower) == 0 or not target_lower:
@@ -242,7 +242,7 @@ def _find_text_span(target_lower: str, ocr_words_lower: List[str], ocr_words: Li
     return []
 
 
-def _make_annotation(field_name: str, value: str, boxes: List[List[int]]) -> Dict[str, Any]:
+def _make_annotation(field_name: str, value: str, boxes: list[list[int]]) -> dict[str, Any]:
     """Build a single annotation dict from matched boxes."""
     return {
         "label": field_name,
@@ -258,16 +258,16 @@ def _make_annotation(field_name: str, value: str, boxes: List[List[int]]) -> Dic
     }
 
 
-def build_page_fragments(page) -> List[Dict[str, Any]]:
+def build_page_fragments(page) -> list[dict[str, Any]]:
     """Build Tensorlake-style page_fragments from page data"""
-    fragments: List[Dict[str, Any]] = []
+    fragments: list[dict[str, Any]] = []
     reading_order = 0
 
     if page.ocr_result:
         md = page.ocr_result.to_markdown()
         lines = md.split("\n")
         in_table = False
-        table_rows: List[str] = []
+        table_rows: list[str] = []
         for line in lines:
             stripped = line.strip()
             if not stripped:
@@ -345,9 +345,9 @@ def build_page_fragments(page) -> List[Dict[str, Any]]:
 GT_COLOR = "#3b82f6"
 PRED_COLOR = "#f59e0b"
 
-def annotations_to_boxes(annotations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def annotations_to_boxes(annotations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert annotation list to box overlay format for frontend.
-    
+
     Ground truth boxes get a consistent blue; predicted boxes get per-field colors.
     """
     result = []

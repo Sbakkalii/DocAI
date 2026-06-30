@@ -1,14 +1,14 @@
 """Batch evaluation: process N documents through the pipeline with latency/throughput metrics."""
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pipeline import PipelineConfig, PipelineOrchestrator
-from pipeline.annotation_utils import load_ground_truth, find_annotation_file
 
 logger = logging.getLogger("app.batch_eval")
 
@@ -18,7 +18,7 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 _MAX_CONCURRENT = 3
 
 
-def _percentile(data: List[float], p: float) -> float:
+def _percentile(data: list[float], p: float) -> float:
     if not data:
         return 0.0
     sorted_data = sorted(data)
@@ -30,9 +30,9 @@ def _percentile(data: List[float], p: float) -> float:
     return sorted_data[f] + (k - f) * (sorted_data[c] - sorted_data[f])
 
 
-def _aggregate_per_field(accuracies: List[dict]) -> Dict[str, dict]:
+def _aggregate_per_field(accuracies: list[dict]) -> dict[str, dict]:
     """Aggregate per-field accuracy across multiple documents."""
-    field_metrics: Dict[str, Dict[str, float]] = {}
+    field_metrics: dict[str, dict[str, float]] = {}
     for acc in accuracies:
         per_field = acc.get("per_field") if isinstance(acc, dict) else None
         if not per_field:
@@ -63,8 +63,8 @@ async def _process_single_doc(
     mode: str,
     model_name: str,
     embedding_model: str,
-    target_fields: Optional[List[str]],
-) -> Dict[str, Any]:
+    target_fields: list[str] | None,
+) -> dict[str, Any]:
     """Process a single document through the pipeline and return metrics."""
     doc_label = f"{img_path.parent.parent.name}/{img_path.name}"
     logger.info(f"  [{idx + 1}/{total}] Processing {doc_label}")
@@ -92,7 +92,7 @@ async def _process_single_doc(
         run_cfg.validation.required_fields = target_fields
 
     orchestrator = PipelineOrchestrator(run_cfg)
-    step_times: Dict[str, float] = {}
+    step_times: dict[str, float] = {}
     doc_start = time.time()
 
     async def on_progress(step, status, elapsed, data):
@@ -140,10 +140,8 @@ async def _process_single_doc(
             "error": str(e),
         }
     finally:
-        try:
+        with contextlib.suppress(Exception):
             save_path.unlink(missing_ok=True)
-        except Exception:
-            pass
 
 
 async def run_batch_eval(
@@ -151,11 +149,11 @@ async def run_batch_eval(
     model_name: str = "phi3:mini",
     embedding_model: str = "e5",
     num_docs: int = 5,
-    target_fields: Optional[List[str]] = None,
+    target_fields: list[str] | None = None,
     dataset_path: str = "data/documents/invoice_dataset",
     max_concurrent: int = _MAX_CONCURRENT,
     with_optimization: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run pipeline on N dataset documents in parallel and return aggregate metrics.
 
     Uses asyncio.Semaphore to limit concurrent pipeline runs.
@@ -172,7 +170,7 @@ async def run_batch_eval(
     if not model_dirs:
         return {"error": "No model directories found"}
 
-    doc_paths: List[Path] = []
+    doc_paths: list[Path] = []
     for md in model_dirs:
         ann_dir = md / "annotations"
         img_dir = md / "images"
@@ -199,7 +197,7 @@ async def run_batch_eval(
 
     sem = asyncio.Semaphore(max_concurrent)
 
-    async def run_one(idx: int, img_path: Path) -> Dict[str, Any]:
+    async def run_one(idx: int, img_path: Path) -> dict[str, Any]:
         async with sem:
             return await _process_single_doc(
                 img_path, idx, len(doc_paths), factory,
@@ -209,7 +207,7 @@ async def run_batch_eval(
     tasks = [run_one(idx, p) for idx, p in enumerate(doc_paths)]
     per_doc_results = await asyncio.gather(*tasks)
 
-    step_timings_sum: Dict[str, List[float]] = {}
+    step_timings_sum: dict[str, list[float]] = {}
     for r in per_doc_results:
         for step_name, elapsed in r.get("step_times", {}).items():
             step_timings_sum.setdefault(step_name, []).append(elapsed)

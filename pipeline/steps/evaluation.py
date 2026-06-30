@@ -1,13 +1,11 @@
-import asyncio
+import re
 import time
 import unicodedata
-import re
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
-from pipeline.base import BaseStep, PipelineContext
 from pipeline.annotation_utils import find_annotation_file, load_ground_truth
+from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class EvaluationStep(BaseStep):
@@ -98,8 +96,8 @@ class EvaluationStep(BaseStep):
 
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
         self.target_fields = self._get_target_fields(ctx)
-        results: Dict[str, Any] = {}
-        metric_timing: Dict[str, float] = {}
+        results: dict[str, Any] = {}
+        metric_timing: dict[str, float] = {}
         if "accuracy" in self.metrics:
             t0 = time.time()
             results["accuracy"] = await self._compute_accuracy(ctx)
@@ -147,9 +145,9 @@ class EvaluationStep(BaseStep):
                          f"extracted_fields on page 0: {has_fields} ({fields_count} fields)")
         return ctx
 
-    def _compute_enrichment(self, ctx: PipelineContext) -> Dict[str, Any]:
+    def _compute_enrichment(self, ctx: PipelineContext) -> dict[str, Any]:
         """Log enrichment data from vendor lookup, anomaly detection, and agentic retries."""
-        enrichment: Dict[str, Any] = {
+        enrichment: dict[str, Any] = {
             "document_type": ctx.metadata.get("document_type", "unknown"),
             "document_type_confidence": ctx.metadata.get("document_type_confidence", 0.0),
             "agentic_retries": ctx.metadata.get("agentic_retries", 0),
@@ -181,7 +179,7 @@ class EvaluationStep(BaseStep):
     @staticmethod
     def _ocr_norm(v: str) -> str:
         """Normalize text to handle OCR confusions and minor differences.
-        
+
         Strips accents, currency symbols, and lowercases.
         """
         v = unicodedata.normalize('NFKD', v).encode('ascii', 'ignore').decode('ascii')
@@ -189,11 +187,11 @@ class EvaluationStep(BaseStep):
         for ch in EvaluationStep.CURRENCY_SYMBOLS:
             v = v.replace(ch, '')
         return v
-    
+
     @staticmethod
     def _norm_token(tok: str) -> str:
         """Normalize a single token for numerical comparison.
-        
+
         Replaces comma decimal with dot, strips trailing zeros after decimal point.
         """
         tok = tok.replace(',', '.')
@@ -211,7 +209,7 @@ class EvaluationStep(BaseStep):
             v = v.rstrip('0').rstrip('.')
         return v
 
-    def _parse_number(self, v: str) -> Optional[float]:
+    def _parse_number(self, v: str) -> float | None:
         """Parse a number from a string handling European and US formats."""
         for ch in self.CURRENCY_SYMBOLS:
             v = v.replace(ch, '')
@@ -275,7 +273,7 @@ class EvaluationStep(BaseStep):
         return 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
 
     async def _compute_accuracy(self, ctx: PipelineContext) -> dict:
-        per_field: Dict[str, list] = {}
+        per_field: dict[str, list] = {}
         exact_total = 0
         exact_hits = 0
         partial_total = 0
@@ -289,8 +287,8 @@ class EvaluationStep(BaseStep):
             if not tsv_file:
                 continue
             gt = load_ground_truth(tsv_file)
-            gt_fields: Dict[str, List[str]] = {}
-            for w, b, label in zip(gt.words, gt.boxes, gt.labels):
+            gt_fields: dict[str, list[str]] = {}
+            for w, _b, label in zip(gt.words, gt.boxes, gt.labels, strict=False):
                 if label == "O":
                     continue
                 gt_fields.setdefault(label, []).append(w)
@@ -388,9 +386,9 @@ class EvaluationStep(BaseStep):
                     else:
                         val_str = str(value)
                     val_norm = self._ocr_norm(val_str)
-                    val_tokens = set(self._norm_token(t) for t in val_norm.split())
+                    val_tokens = {self._norm_token(t) for t in val_norm.split()}
                     ocr_norm = self._ocr_norm(ocr_text)
-                    ocr_tokens_norm = set(self._norm_token(t) for t in ocr_norm.split())
+                    ocr_tokens_norm = {self._norm_token(t) for t in ocr_norm.split()}
                     val_tokens.discard('')
                     ocr_tokens_norm.discard('')
                     overlap = val_tokens & ocr_tokens_norm
@@ -420,7 +418,7 @@ class EvaluationStep(BaseStep):
     async def _compute_numeric_delta(self, ctx: PipelineContext) -> dict:
         scores = []
         total_fields = 0
-        per_field: Dict[str, list] = {}
+        per_field: dict[str, list] = {}
 
         for page in ctx.pages:
             img_path = page.metadata.get("image_path", "")
@@ -430,8 +428,8 @@ class EvaluationStep(BaseStep):
             if not tsv_file:
                 continue
             gt = load_ground_truth(tsv_file)
-            gt_fields: Dict[str, List[str]] = {}
-            for w, b, label in zip(gt.words, gt.boxes, gt.labels):
+            gt_fields: dict[str, list[str]] = {}
+            for w, _b, label in zip(gt.words, gt.boxes, gt.labels, strict=False):
                 if label == "O":
                     continue
                 gt_fields.setdefault(label, []).append(w)
@@ -555,7 +553,7 @@ class EvaluationStep(BaseStep):
     async def _compute_format_compliance(self, ctx: PipelineContext) -> dict:
         total = 0
         passed = 0
-        per_field: Dict[str, list] = {}
+        per_field: dict[str, list] = {}
 
         for page in ctx.pages:
             extracted = page.extracted_fields or {}
@@ -600,7 +598,7 @@ class EvaluationStep(BaseStep):
     async def _compute_detection_rate(self, ctx: PipelineContext) -> dict:
         total = 0
         detected = 0
-        per_field: Dict[str, list] = {}
+        per_field: dict[str, list] = {}
 
         for page in ctx.pages:
             extracted = page.extracted_fields or {}

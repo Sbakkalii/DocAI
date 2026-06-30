@@ -9,11 +9,10 @@ Enhanced with vendor context from vendor_lookup:
   - Format, currency, ranges, OCR evidence
 """
 
-import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class ValidationStep(BaseStep):
@@ -32,7 +31,7 @@ class ValidationStep(BaseStep):
                 page.validation_result = await self._validate(page, vendor_profile)
         return ctx
 
-    async def _validate(self, page, vendor_profile: Dict[str, Any] = None) -> dict:
+    async def _validate(self, page, vendor_profile: dict[str, Any] = None) -> dict:
         fields = page.extracted_fields
         issues = []
 
@@ -151,7 +150,7 @@ class ValidationStep(BaseStep):
 
         return issues
 
-    def _check_total_with_tax(self, fields: dict, vendor_profile: Dict = None) -> list:
+    def _check_total_with_tax(self, fields: dict, vendor_profile: dict = None) -> list:
         issues = []
         total = self._parse_monetary(fields.get("TOTAL"))
         total_amount = self._parse_monetary(fields.get("TOTAL_AMOUNT"))
@@ -182,7 +181,7 @@ class ValidationStep(BaseStep):
 
         return issues
 
-    def _check_vendor_currency(self, fields: dict, vendor_profile: Dict = None) -> list:
+    def _check_vendor_currency(self, fields: dict, vendor_profile: dict = None) -> list:
         issues = []
         if not vendor_profile or "currency" not in vendor_profile:
             return issues
@@ -218,7 +217,7 @@ class ValidationStep(BaseStep):
     def _check_currency(self, fields: dict) -> list:
         issues = []
         currency_symbols = set()
-        for field_name, value in fields.items():
+        for _field_name, value in fields.items():
             val = str(value)
             for sym in ("€", "$", "£", "¥", "₽", "₹", "₩"):
                 if sym in val:
@@ -262,7 +261,7 @@ class ValidationStep(BaseStep):
         return issues
 
     @staticmethod
-    def _parse_monetary(value) -> Optional[float]:
+    def _parse_monetary(value) -> float | None:
         if value is None:
             return None
         val = str(value).strip().replace(",", ".").replace("€", "").replace("$", "").replace("£", "")

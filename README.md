@@ -457,6 +457,21 @@ docker compose build app
 | `GET` | `/api/result/{session_id}` | Get pipeline results |
 | `GET` | `/api/result/{session_id}/download` | Download results as JSON |
 
+## Production Features
+
+DocAI includes production-grade infrastructure for reliability, observability, and scalability:
+
+- **CI/CD Pipeline** — GitHub Actions workflow (`.github/workflows/ci.yml`) with linting (ruff), type checking (mypy), and unit tests (pytest). Pyproject.toml with PEP 621 metadata.
+- **API Versioning** — `/api/v1/` routes with transparent middleware rewriting. Backward-compatible `/api/` paths.
+- **Input Validation** — Pydantic request/response models in `app/models.py` for all endpoints. FastAPI auto-generates OpenAPI schemas.
+- **Rate Limiting** — `slowapi`-based per-IP rate limiting (default 60 req/min). Configurable via `RATE_LIMIT_DEFAULT` env var.
+- **Health Checks** — `/health` (liveness) and `/api/health/ready` (readiness with Ollama + cache dependency verification).
+- **Request Tracing** — `X-Request-ID` header on every response for log correlation. `utils/observability.py`.
+- **Circuit Breaker** — `utils/circuit_breaker.py` prevents cascading failures to Ollama/vLLM after 5 consecutive errors with 30s recovery.
+- **Authentication** — API key middleware (`x-api-key` header). `/api/config` public endpoint for non-sensitive settings.
+- **Webhook Notifications** — Register URLs via `POST /api/webhooks/register` for pipeline completion callbacks.
+- **Database Migrations** — Alembic setup in `migrations/` for schema versioning.
+
 ## Architecture
 
 ```

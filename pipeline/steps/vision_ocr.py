@@ -10,15 +10,10 @@ artifacts.
 import asyncio
 import base64
 import hashlib
-import json
-import re
-import time
 from pathlib import Path
-from typing import Any, Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
-
+from pipeline.config import PipelineConfig
 
 SYSTEM_PROMPT = """You are a precise OCR engine for invoices.
 Extract ALL visible text from the image exactly as written.
@@ -93,7 +88,7 @@ class VisionOCRStep(BaseStep):
         await asyncio.gather(*tasks)
         return ctx
 
-    async def _run_vlm(self, image_path: str) -> Optional[str]:
+    async def _run_vlm(self, image_path: str) -> str | None:
         try:
             from utils.cache_manager import get_shared_cache
             cache = get_shared_cache()

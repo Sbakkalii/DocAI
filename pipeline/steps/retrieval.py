@@ -10,13 +10,14 @@ import asyncio
 import functools
 import json
 import logging
-import numpy as np
-from typing import Any, List, Optional
 from pathlib import Path
+from typing import Any
 
-from pipeline.config import PipelineConfig
+import numpy as np
+
+from pipeline.annotation_utils import load_ground_truth
 from pipeline.base import BaseStep, PipelineContext
-from pipeline.annotation_utils import find_annotation_file, load_ground_truth
+from pipeline.config import PipelineConfig
 from utils.language_detector import STOP_WORDS_BY_LANG
 
 logger = logging.getLogger("pipeline.retrieval")
@@ -38,11 +39,11 @@ class RetrievalStep(BaseStep):
         self.k = config.retrieval.k
         self.strategy = config.retrieval.strategy
         self.rrf_k = config.retrieval.rrf_k
-        self._examples: List[dict] = []
-        self._model: Optional[Any] = None
-        self._turbovec_index: Optional[Any] = None
-        self._bm25: Optional[Any] = None
-        self._bm25_corpus: List[str] = []
+        self._examples: list[dict] = []
+        self._model: Any | None = None
+        self._turbovec_index: Any | None = None
+        self._bm25: Any | None = None
+        self._bm25_corpus: list[str] = []
         self._loaded = False
         store_dir = Path(config.retrieval.store_dir or "output/pipeline")
         self._tq_cache = store_dir / "retrieval_embeddings.tq"
@@ -72,7 +73,7 @@ class RetrievalStep(BaseStep):
 
         # Gather TSV files grouped by model directory, sorted for determinism
         model_dirs = sorted(invoice_root.glob("invoice_dataset_model_*"))
-        model_tsvs: List[list] = []
+        model_tsvs: list[list] = []
         for md in model_dirs:
             tsvs = sorted(md.rglob("*.tsv"))
             if tsvs:
@@ -83,8 +84,8 @@ class RetrievalStep(BaseStep):
             return
 
         max_total = 50
-        per_model = max(1, max_total // len(model_tsvs))
-        examples: List[dict] = []
+        max(1, max_total // len(model_tsvs))
+        examples: list[dict] = []
         taken = [0] * len(model_tsvs)
 
         # Round-robin: take one example per model cycle until we fill max_total
@@ -152,7 +153,7 @@ class RetrievalStep(BaseStep):
             self._bm25 = self._build_bm25(self._bm25_corpus)
         logger.info(f"Loaded TurboVec index ({len(self._turbovec_index)} vectors) from {self._tq_cache}")
 
-    def _build_index(self, examples: List[dict], num_models: int = 0):
+    def _build_index(self, examples: list[dict], num_models: int = 0):
         logger.info("Computing E5 embeddings for example store (one-time)...")
         self._load_embedding_model()
         texts = [ex.get("ocr_text", "") for ex in examples]
@@ -187,7 +188,7 @@ class RetrievalStep(BaseStep):
         logger.info(f"TurboVec + BM25 index saved ({len(examples)} examples)")
 
     @staticmethod
-    def _build_bm25(corpus: List[str]) -> Optional[Any]:
+    def _build_bm25(corpus: list[str]) -> Any | None:
         if not BM25_AVAILABLE:
             return None
         stop_words = STOP_WORDS_BY_LANG.get("fr", set()) | STOP_WORDS_BY_LANG.get("en", set())
@@ -248,13 +249,13 @@ class RetrievalStep(BaseStep):
 
     # ── Dense (TurboVec E5) ────────────────────────────────────────
 
-    def _retrieve_dense(self, query_text: str, query_embedding: np.ndarray) -> List[dict]:
+    def _retrieve_dense(self, query_text: str, query_embedding: np.ndarray) -> list[dict]:
         if query_embedding is None or self._turbovec_index is None:
             return self._retrieve_bm25(query_text)
         q = query_embedding.astype(np.float32).reshape(1, -1)
         scores, ids = self._turbovec_index.search(q, k=self.k * 2)
         results = []
-        for score, idx in zip(scores[0], ids[0]):
+        for score, idx in zip(scores[0], ids[0], strict=False):
             if score < 20:
                 break
             example_idx = int(idx) - 1
@@ -264,7 +265,7 @@ class RetrievalStep(BaseStep):
 
     # ── BM25 sparse ────────────────────────────────────────────────
 
-    def _retrieve_bm25(self, query_text: str) -> List[dict]:
+    def _retrieve_bm25(self, query_text: str) -> list[dict]:
         if not self._examples:
             return []
         if self._bm25 is not None:
@@ -276,7 +277,7 @@ class RetrievalStep(BaseStep):
 
         # Fallback: simple keyword overlap
         query_lower = query_text.lower()
-        query_words = set(w for w in query_lower.split() if len(w) > 2)
+        query_words = {w for w in query_lower.split() if len(w) > 2}
         scored = []
         for ex in self._examples:
             score = 0
@@ -284,7 +285,7 @@ class RetrievalStep(BaseStep):
             for qw in query_words:
                 if qw in ex_text:
                     score += 1
-            ex_words = set(w for w in ex_text.split() if len(w) > 3)
+            ex_words = {w for w in ex_text.split() if len(w) > 3}
             score += len(query_words & ex_words) * 2
             scored.append((score, ex))
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -292,7 +293,7 @@ class RetrievalStep(BaseStep):
 
     # ── Hybrid (RRF) ───────────────────────────────────────────────
 
-    def _retrieve_hybrid(self, query_text: str, query_embedding: np.ndarray) -> List[dict]:
+    def _retrieve_hybrid(self, query_text: str, query_embedding: np.ndarray) -> list[dict]:
         has_dense = query_embedding is not None and self._turbovec_index is not None
         has_sparse = bool(self._examples) and (self._bm25 is not None or bool(query_text))
 
@@ -323,15 +324,15 @@ class RetrievalStep(BaseStep):
         else:
             # Keyword fallback
             query_lower = query_text.lower()
-            query_words = set(w for w in query_lower.split() if len(w) > 2)
-            kw_scores: List[float] = []
+            query_words = {w for w in query_lower.split() if len(w) > 2}
+            kw_scores: list[float] = []
             for ex in self._examples:
                 score = 0
                 ex_text = ex.get("ocr_text", "").lower()
                 for qw in query_words:
                     if qw in ex_text:
                         score += 1
-                ex_words = set(w for w in ex_text.split() if len(w) > 3)
+                ex_words = {w for w in ex_text.split() if len(w) > 3}
                 score += len(query_words & ex_words) * 2
                 kw_scores.append(score)
             kw_ranks = np.argsort(kw_scores)[::-1]

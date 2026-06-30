@@ -5,79 +5,80 @@ Each document type has a dedicated model. The model's json_schema()
 is passed to Ollama's `format` parameter for strict structured output.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class LineItem(BaseModel):
-    description: Optional[str] = None
-    quantity: Optional[str] = None
-    uom: Optional[str] = None
-    unit_price: Optional[str] = None
-    sub_total: Optional[str] = None
+    description: str | None = None
+    quantity: str | None = None
+    uom: str | None = None
+    unit_price: str | None = None
+    sub_total: str | None = None
 
 
 class InvoiceSchema(BaseModel):
-    NUMBER: Optional[str] = None
-    SUPPLIER: Optional[str] = None
-    ADDRESS: Optional[str] = None
-    INVOICE_DATE: Optional[str] = None
-    TOTAL: Optional[str] = None
-    TOTAL_AMOUNT: Optional[str] = None
-    line_items: List[LineItem] = Field(default_factory=list)
+    NUMBER: str | None = None
+    SUPPLIER: str | None = None
+    ADDRESS: str | None = None
+    INVOICE_DATE: str | None = None
+    TOTAL: str | None = None
+    TOTAL_AMOUNT: str | None = None
+    line_items: list[LineItem] = Field(default_factory=list)
 
 
 class ContractSchema(BaseModel):
-    CONTRACT_DATE: Optional[str] = None
-    PARTIES: Optional[str] = None
-    EFFECTIVE_DATE: Optional[str] = None
-    TERMINATION_CLAUSE: Optional[str] = None
-    SIGNATORY: Optional[str] = None
-    CONTRACT_VALUE: Optional[str] = None
-    SCOPE_OF_WORK: Optional[str] = None
-    GOVERNING_LAW: Optional[str] = None
+    CONTRACT_DATE: str | None = None
+    PARTIES: str | None = None
+    EFFECTIVE_DATE: str | None = None
+    TERMINATION_CLAUSE: str | None = None
+    SIGNATORY: str | None = None
+    CONTRACT_VALUE: str | None = None
+    SCOPE_OF_WORK: str | None = None
+    GOVERNING_LAW: str | None = None
 
 
 class PurchaseOrderSchema(BaseModel):
-    PO_NUMBER: Optional[str] = None
-    SUPPLIER: Optional[str] = None
-    ORDER_DATE: Optional[str] = None
-    DELIVERY_DATE: Optional[str] = None
-    TOTAL: Optional[str] = None
-    SHIPPING_ADDRESS: Optional[str] = None
-    line_items: List[LineItem] = Field(default_factory=list)
+    PO_NUMBER: str | None = None
+    SUPPLIER: str | None = None
+    ORDER_DATE: str | None = None
+    DELIVERY_DATE: str | None = None
+    TOTAL: str | None = None
+    SHIPPING_ADDRESS: str | None = None
+    line_items: list[LineItem] = Field(default_factory=list)
 
 
 class DeliveryNoteSchema(BaseModel):
-    DN_NUMBER: Optional[str] = None
-    SUPPLIER: Optional[str] = None
-    DELIVERY_DATE: Optional[str] = None
-    RECEIVER_NAME: Optional[str] = None
-    line_items: List[LineItem] = Field(default_factory=list)
-    GOODS_RECEIVED_BY: Optional[str] = None
+    DN_NUMBER: str | None = None
+    SUPPLIER: str | None = None
+    DELIVERY_DATE: str | None = None
+    RECEIVER_NAME: str | None = None
+    line_items: list[LineItem] = Field(default_factory=list)
+    GOODS_RECEIVED_BY: str | None = None
 
 
 class BankStatementSchema(BaseModel):
-    ACCOUNT_NUMBER: Optional[str] = None
-    STATEMENT_DATE: Optional[str] = None
-    OPENING_BALANCE: Optional[str] = None
-    CLOSING_BALANCE: Optional[str] = None
-    BANK_NAME: Optional[str] = None
-    IBAN: Optional[str] = None
+    ACCOUNT_NUMBER: str | None = None
+    STATEMENT_DATE: str | None = None
+    OPENING_BALANCE: str | None = None
+    CLOSING_BALANCE: str | None = None
+    BANK_NAME: str | None = None
+    IBAN: str | None = None
 
 
 class IDCardSchema(BaseModel):
-    DOCUMENT_ID: Optional[str] = None
-    FULL_NAME: Optional[str] = None
-    DATE_OF_BIRTH: Optional[str] = None
-    NATIONALITY: Optional[str] = None
-    EXPIRY_DATE: Optional[str] = None
-    DOCUMENT_NUMBER: Optional[str] = None
-    GENDER: Optional[str] = None
-    PLACE_OF_BIRTH: Optional[str] = None
+    DOCUMENT_ID: str | None = None
+    FULL_NAME: str | None = None
+    DATE_OF_BIRTH: str | None = None
+    NATIONALITY: str | None = None
+    EXPIRY_DATE: str | None = None
+    DOCUMENT_NUMBER: str | None = None
+    GENDER: str | None = None
+    PLACE_OF_BIRTH: str | None = None
 
 
-DOCUMENT_TYPE_SCHEMAS: Dict[str, type] = {
+DOCUMENT_TYPE_SCHEMAS: dict[str, type] = {
     "invoice": InvoiceSchema,
     "contract": ContractSchema,
     "purchase_order": PurchaseOrderSchema,
@@ -89,8 +90,8 @@ DOCUMENT_TYPE_SCHEMAS: Dict[str, type] = {
 
 def build_schema_for_document_type(
     doc_type: str,
-    description_overrides: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    description_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Build a JSON schema for the given document type using Pydantic model_json_schema().
 
     For types with line items, the schema uses a consolidated line_items array
@@ -123,12 +124,12 @@ def build_schema_for_document_type(
 
 def _build_schema_with_overrides(
     model_class: type,
-    description_overrides: Dict[str, str],
-) -> Dict[str, Any]:
+    description_overrides: dict[str, str],
+) -> dict[str, Any]:
     """Build a JSON schema with overridden field descriptions."""
     schema = model_class.model_json_schema()
 
-    def apply_overrides(schema_dict: Dict[str, Any], defs: Dict[str, Any], prefix: str = ""):
+    def apply_overrides(schema_dict: dict[str, Any], defs: dict[str, Any], prefix: str = ""):
         for field_name, field_schema in schema_dict.get("properties", {}).items():
             field_path = f"{prefix}.{field_name}" if prefix else field_name
             if field_path in description_overrides:
@@ -154,11 +155,11 @@ def _build_schema_with_overrides(
 
 
 def _build_union_schema(
-    description_overrides: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
+    description_overrides: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Build a union schema containing all fields from all known document types."""
-    all_properties: Dict[str, Any] = {}
-    all_defs: Dict[str, Any] = {}
+    all_properties: dict[str, Any] = {}
+    all_defs: dict[str, Any] = {}
 
     for model_class in DOCUMENT_TYPE_SCHEMAS.values():
         sub_schema = model_class.model_json_schema()
@@ -178,7 +179,7 @@ def _build_union_schema(
                         sub_prop.pop("title", None)
                 all_properties[key] = val_copy
 
-    schema: Dict[str, Any] = {
+    schema: dict[str, Any] = {
         "type": "object",
         "properties": all_properties,
         "additionalProperties": False,
@@ -188,15 +189,15 @@ def _build_union_schema(
     return schema
 
 
-def get_fields_for_document_type(doc_type: str) -> List[str]:
+def get_fields_for_document_type(doc_type: str) -> list[str]:
     """Return the flat target field list for a document type (backward compat)."""
     from pipeline.config import DOCUMENT_TYPE_FIELDS
     return list(DOCUMENT_TYPE_FIELDS.get(doc_type, DOCUMENT_TYPE_FIELDS["invoice"]))
 
 
-def build_output_schema(target_fields: List[str]) -> Dict[str, Any]:
+def build_output_schema(target_fields: list[str]) -> dict[str, Any]:
     """Build a JSON schema for structured invoice extraction (legacy)."""
-    properties: Dict[str, Any] = {}
+    properties: dict[str, Any] = {}
 
     has_line_items = any(f.startswith("LINE/") for f in target_fields)
     if has_line_items:
@@ -233,9 +234,9 @@ def build_output_schema(target_fields: List[str]) -> Dict[str, Any]:
     }
 
 
-def build_vlm_schema(target_fields: List[str]) -> Dict[str, Any]:
+def build_vlm_schema(target_fields: list[str]) -> dict[str, Any]:
     """Legacy schema for VLM: each LINE/* is a separate array."""
-    properties: Dict[str, Any] = {}
+    properties: dict[str, Any] = {}
     for f in target_fields:
         if f.startswith("LINE/"):
             properties[f] = {
@@ -266,7 +267,7 @@ def build_vlm_schema(target_fields: List[str]) -> Dict[str, Any]:
     }
 
 
-def build_ollama_response_format(schema: Dict[str, Any]) -> Dict[str, Any]:
+def build_ollama_response_format(schema: dict[str, Any]) -> dict[str, Any]:
     """Wrap a JSON schema into Ollama's response_format."""
     return {
         "type": "json_schema",

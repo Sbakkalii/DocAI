@@ -8,13 +8,13 @@ match DocAI's Pydantic schema structure (including nested line_items).
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from dspydantic import Example
 
 logger = logging.getLogger(__name__)
 
-DOCUMENT_TYPE_FIELDS_MAP: Dict[str, List[str]] = {
+DOCUMENT_TYPE_FIELDS_MAP: dict[str, list[str]] = {
     "invoice": [
         "NUMBER", "SUPPLIER", "ADDRESS", "INVOICE_DATE",
         "TOTAL", "TOTAL_AMOUNT",
@@ -64,7 +64,7 @@ class ExampleBuilder:
         doc_type: str = "invoice",
         num_examples: int = 20,
         split: float = 0.8,
-    ) -> List[Example]:
+    ) -> list[Example]:
         """Build DSPydantic Example objects from ground truth data.
 
         Args:
@@ -76,7 +76,7 @@ class ExampleBuilder:
         Returns:
             List of DSPydantic Example objects.
         """
-        examples: List[Example] = []
+        examples: list[Example] = []
         field_names = DOCUMENT_TYPE_FIELDS_MAP.get(doc_type, DOCUMENT_TYPE_FIELDS_MAP["invoice"])
 
         for model_dir in sorted(self.dataset_root.glob("invoice_dataset_model_*")):
@@ -113,15 +113,15 @@ class ExampleBuilder:
     def _build_expected_from_tsv(
         self,
         tsv_path: Path,
-        field_names: List[str],
+        field_names: list[str],
         doc_type: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Convert a single TSV annotation file into an expected_output dict."""
         import csv
 
-        words: List[str] = []
-        labels: List[str] = []
-        with open(tsv_path, "r") as f:
+        words: list[str] = []
+        labels: list[str] = []
+        with open(tsv_path) as f:
             reader = csv.DictReader(f)
             for row in reader:
                 text = row.get("text", "").strip()
@@ -129,8 +129,8 @@ class ExampleBuilder:
                 words.append(text)
                 labels.append(label)
 
-        raw: Dict[str, str] = {}
-        for word, label in zip(words, labels):
+        raw: dict[str, str] = {}
+        for word, label in zip(words, labels, strict=False):
             if label == "O":
                 continue
             mapped = GT_TO_SCHEMA.get(label, label)
@@ -144,7 +144,7 @@ class ExampleBuilder:
 
         if self._has_line_fields(raw):
             line_items = self._build_line_items(raw)
-            expected: Dict[str, Any] = {}
+            expected: dict[str, Any] = {}
             for f in field_names:
                 if f.startswith("LINE/"):
                     continue
@@ -158,13 +158,13 @@ class ExampleBuilder:
         return {f: raw.get(f) for f in field_names if f in raw}
 
     @staticmethod
-    def _has_line_fields(raw: Dict[str, str]) -> bool:
+    def _has_line_fields(raw: dict[str, str]) -> bool:
         return any(k.startswith("LINE/") for k in raw)
 
     @staticmethod
-    def _build_line_items(raw: Dict[str, str]) -> List[Dict[str, Optional[str]]]:
+    def _build_line_items(raw: dict[str, str]) -> list[dict[str, str | None]]:
         """Reconstruct line_items list from flat LINE/* fields."""
-        line_data: Dict[str, List[str]] = {}
+        line_data: dict[str, list[str]] = {}
         for k, v in raw.items():
             if k.startswith("LINE/"):
                 sub = k.split("/", 1)[-1].lower()
@@ -183,10 +183,10 @@ class ExampleBuilder:
         if not line_data.get("description"):
             return []
 
-        items: List[Dict[str, Optional[str]]] = []
+        items: list[dict[str, str | None]] = []
         num_lines = len(line_data["description"])
         for i in range(num_lines):
-            item: Dict[str, Optional[str]] = {}
+            item: dict[str, str | None] = {}
             for key in ("description", "quantity", "uom", "unit_price", "sub_total"):
                 vals = line_data.get(key, [])
                 item[key] = vals[i] if i < len(vals) else None
@@ -196,9 +196,9 @@ class ExampleBuilder:
 
     def build_examples_for_all_types(
         self,
-        doc_types: Optional[List[str]] = None,
+        doc_types: list[str] | None = None,
         num_per_type: int = 20,
-    ) -> Dict[str, List[Example]]:
+    ) -> dict[str, list[Example]]:
         """Build examples for multiple document types.
 
         Args:
@@ -211,7 +211,7 @@ class ExampleBuilder:
         if doc_types is None:
             doc_types = list(DOCUMENT_TYPE_FIELDS_MAP.keys())
 
-        results: Dict[str, List[Example]] = {}
+        results: dict[str, list[Example]] = {}
         for dt in doc_types:
             examples = self.build_examples(doc_type=dt, num_examples=num_per_type)
             if examples:

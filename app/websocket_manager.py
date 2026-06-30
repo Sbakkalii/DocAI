@@ -1,10 +1,10 @@
 import asyncio
-import json
+import contextlib
 import logging
 import time
-from typing import Dict, Set, Any, Optional
+from typing import Any
+
 from fastapi import WebSocket
-from datetime import datetime
 
 
 def _json_safe(obj: Any) -> Any:
@@ -22,9 +22,9 @@ def _json_safe(obj: Any) -> Any:
 
 class WebSocketManager:
     def __init__(self):
-        self._connections: Dict[str, Set[WebSocket]] = {}
-        self._session_states: Dict[str, list[dict]] = {}
-        self._last_broadcast: Dict[str, float] = {}
+        self._connections: dict[str, set[WebSocket]] = {}
+        self._session_states: dict[str, list[dict]] = {}
+        self._last_broadcast: dict[str, float] = {}
         self.logger = logging.getLogger("app.ws")
 
     async def connect(self, session_id: str, ws: WebSocket):
@@ -39,6 +39,7 @@ class WebSocketManager:
             try:
                 await ws.send_json(msg)
             except Exception:
+                self.logger.debug(f"WS replay failed for session {session_id}, stopping replay")
                 break
 
         self.logger.info(
@@ -58,7 +59,7 @@ class WebSocketManager:
         await asyncio.sleep(delay)
         self._session_states.pop(session_id, None)
 
-    async def broadcast(self, session_id: str, message: Dict[str, Any]):
+    async def broadcast(self, session_id: str, message: dict[str, Any]):
         # Sanitise message so JSON serialisation never fails on e.g. Pydantic models
         safe = _json_safe(message)
         # Cache for late-connecting clients
@@ -75,10 +76,8 @@ class WebSocketManager:
         last = self._last_broadcast.get(session_id, 0)
         if now - last > 25:
             for ws in list(self._connections[session_id]):
-                try:
+                with contextlib.suppress(Exception):
                     await ws.send_json({"type": "ping"})
-                except Exception:
-                    pass
 
         dead = set()
         for ws in self._connections[session_id]:
@@ -86,6 +85,7 @@ class WebSocketManager:
                 await ws.send_json(safe)
             except Exception:
                 dead.add(ws)
+                self.logger.debug("WS broadcast failed, marking client as dead")
         self._last_broadcast[session_id] = time.time()
         for ws in dead:
             self._connections[session_id].discard(ws)

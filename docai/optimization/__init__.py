@@ -13,4 +13,9 @@ def _lazy_load(filepath: str, names: list):
     return {name: getattr(mod, name) for name in names}
 
 
-__all__ = ["ExampleBuilder", "load_optimized_descriptions", "get_description_overrides"]
+def load_optimized_descriptions(*args, **kwargs):
+    from docai.optimization.schema_optimizer import load_optimized_descriptions as _f
+    return _f(*args, **kwargs)
+
+
+__all__ = ["ExampleBuilder", "load_optimized_descriptions"]

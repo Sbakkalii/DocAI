@@ -15,7 +15,7 @@ import sqlite3
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class LRUCache:
         self.hits = 0
         self.misses = 0
 
-    def get(self, key: str) -> Tuple[bool, Any]:
+    def get(self, key: str) -> tuple[bool, Any]:
         if key in self.cache:
             self.cache.move_to_end(key)
             self.hits += 1
@@ -56,7 +56,7 @@ class LRUCache:
         total = self.hits + self.misses
         return self.hits / total if total > 0 else 0.0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         return {
             "size": len(self.cache),
             "maxsize": self.maxsize,
@@ -81,7 +81,7 @@ class CacheManager:
     - rag: (query_hash, k, version) -> retrieved items
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.cache_dir = Path(config.get("cache_dir", ".cache/invoices"))
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -104,7 +104,7 @@ class CacheManager:
 
         # SQLite for persistence
         self.db_path = self.cache_dir / "cache.db"
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         if self.enabled:
             self._init_sqlite()
 
@@ -165,7 +165,7 @@ class CacheManager:
                 for chunk in iter(lambda: f.read(8192), b""):
                     h.update(chunk)
             return h.hexdigest()
-        except (IOError, OSError):
+        except OSError:
             return hashlib.md5(filepath.encode()).hexdigest()
 
     # ── OCR Cache ─────────────────────────────────────────────────────
@@ -183,7 +183,7 @@ class CacheManager:
                 return True
         return False
 
-    def get_ocr(self, key: str) -> Tuple[bool, Optional[Dict]]:
+    def get_ocr(self, key: str) -> tuple[bool, dict | None]:
         if not self.enabled:
             return False, None
 
@@ -211,7 +211,7 @@ class CacheManager:
         self.stats["ocr"]["misses"] += 1
         return False, None
 
-    def set_ocr(self, key: str, value: Dict):
+    def set_ocr(self, key: str, value: dict):
         if not self.enabled:
             return
 
@@ -230,7 +230,7 @@ class CacheManager:
 
     # ── Embedding Cache ───────────────────────────────────────────────
 
-    def get_embedding(self, key: str) -> Tuple[bool, Optional[bytes]]:
+    def get_embedding(self, key: str) -> tuple[bool, bytes | None]:
         if not self.enabled:
             return False, None
 
@@ -276,7 +276,7 @@ class CacheManager:
 
     # ── LLM Cache ─────────────────────────────────────────────────────
 
-    def get_llm(self, key: str) -> Tuple[bool, Optional[str]]:
+    def get_llm(self, key: str) -> tuple[bool, str | None]:
         if not self.enabled:
             return False, None
 
@@ -322,7 +322,7 @@ class CacheManager:
 
     # ── RAG Cache ─────────────────────────────────────────────────────
 
-    def get_rag(self, key: str) -> Tuple[bool, Optional[Dict]]:
+    def get_rag(self, key: str) -> tuple[bool, dict | None]:
         if not self.enabled:
             return False, None
 
@@ -349,7 +349,7 @@ class CacheManager:
         self.stats["rag"]["misses"] += 1
         return False, None
 
-    def set_rag(self, key: str, value: Dict):
+    def set_rag(self, key: str, value: dict):
         if not self.enabled:
             return
 
@@ -372,7 +372,7 @@ class CacheManager:
         if cache_type in self.stats:
             self.stats[cache_type]["time_saved_ms"] += ms
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get cache statistics summary."""
         summary = {}
         total_hits = total_misses = 0
@@ -432,7 +432,7 @@ class CacheManager:
             self._conn = None
 
 
-_cache_manager: Optional[CacheManager] = None
+_cache_manager: CacheManager | None = None
 
 
 def get_shared_cache() -> CacheManager:

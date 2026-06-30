@@ -7,38 +7,43 @@ Each enabled step is instantiated and run in order.
 
 import logging
 import time
-from typing import Dict, Type
 from pathlib import Path
 
-from pipeline.config import PipelineConfig, STEP_CONFIG_MAP, STEP_ORDER
-from pipeline.base import PipelineContext, PageResult, BaseStep
-from pipeline.annotation_utils import find_annotation_file, load_ground_truth, match_predicted_fields, annotations_to_boxes
-from pipeline.steps.ingestion import IngestionStep
-from pipeline.steps.ocr import OCRStep
-from pipeline.steps.vision_ocr import VisionOCRStep
-from pipeline.steps.embedding import EmbeddingStep
-from pipeline.steps.retrieval import RetrievalStep
-from pipeline.steps.rag import RAGStep
-from pipeline.steps.llm_extraction import LLMExtractionStep
-from pipeline.steps.table_extraction import TableExtractionStep
-from pipeline.steps.document_classifier import DocumentTypeClassifierStep
-from pipeline.steps.validation import ValidationStep
-from pipeline.steps.cross_page import CrossPageStep
-from pipeline.steps.knowledge_graph import KnowledgeGraphStep
-from pipeline.steps.evaluation import EvaluationStep
-from pipeline.steps.confidence import ConfidenceStep
-from pipeline.steps.export import ExportStep
-from pipeline.steps.vendor_lookup import VendorLookupStep
+from pipeline.annotation_utils import (
+    annotations_to_boxes,
+    find_annotation_file,
+    load_ground_truth,
+    match_predicted_fields,
+)
+from pipeline.base import BaseStep, PageResult, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.steps.anomaly import AnomalyStep
-from pipeline.steps.multi_task import MultiTaskStep
-from pipeline.steps.hybrid_ocr import HybridOCRStep
+from pipeline.steps.confidence import ConfidenceStep
+from pipeline.steps.cross_page import CrossPageStep
+from pipeline.steps.document_classifier import DocumentTypeClassifierStep
 from pipeline.steps.document_graph import DocumentGraphStep
+from pipeline.steps.embedding import EmbeddingStep
 from pipeline.steps.end_to_end_vlm import EndToEndVLMStep
-from pipeline.steps.parallel_stream_splitter import ParallelStreamSplitterStep
-from pipeline.steps.page_level_classifier import PageLevelClassifierStep
-from pipeline.steps.map_phase_extraction import MapPhaseExtractionStep
-from pipeline.steps.reduce_phase_stitching import ReducePhaseStitchingStep
+from pipeline.steps.evaluation import EvaluationStep
+from pipeline.steps.export import ExportStep
 from pipeline.steps.global_validation import GlobalValidationStep
+from pipeline.steps.hybrid_ocr import HybridOCRStep
+from pipeline.steps.ingestion import IngestionStep
+from pipeline.steps.knowledge_graph import KnowledgeGraphStep
+from pipeline.steps.llm_extraction import LLMExtractionStep
+from pipeline.steps.map_phase_extraction import MapPhaseExtractionStep
+from pipeline.steps.multi_task import MultiTaskStep
+from pipeline.steps.ocr import OCRStep
+from pipeline.steps.page_level_classifier import PageLevelClassifierStep
+from pipeline.steps.parallel_stream_splitter import ParallelStreamSplitterStep
+from pipeline.steps.rag import RAGStep
+from pipeline.steps.reduce_phase_stitching import ReducePhaseStitchingStep
+from pipeline.steps.retrieval import RetrievalStep
+from pipeline.steps.table_extraction import TableExtractionStep
+from pipeline.steps.validation import ValidationStep
+from pipeline.steps.vendor_lookup import VendorLookupStep
+from pipeline.steps.vision_ocr import VisionOCRStep
+
 
 def _compute_predicted_annotations(page: PageResult) -> list:
     """Compute predicted annotations from extracted fields + OCR boxes, if available."""
@@ -57,7 +62,7 @@ def _compute_predicted_annotations(page: PageResult) -> list:
     return annotations_to_boxes(matched)
 
 # Registry of all available steps
-STEP_REGISTRY: Dict[str, Type[BaseStep]] = {
+STEP_REGISTRY: dict[str, type[BaseStep]] = {
     "ingestion": IngestionStep,
     "ocr": OCRStep,
     "vision_ocr": VisionOCRStep,
@@ -136,9 +141,9 @@ class PipelineOrchestrator:
                                 gt = load_ground_truth(tsv_file, image_width=iw, image_height=ih)
                                 gt_annotations = annotations_to_boxes([
                                     {"label": label, "text": word, "box": box, "confidence": 1.0, "source": "ground_truth"}
-                                    for word, box, label in zip(gt.words, gt.boxes, gt.labels)
+                                    for word, box, label in zip(gt.words, gt.boxes, gt.labels, strict=False)
                                 ])
-                            except Exception as e:
+                            except Exception:
                                 pass
 
                     pages_data.append({
@@ -148,7 +153,7 @@ class PipelineOrchestrator:
                         "word_count": len(ocr_words),
                         "boxes": [
                             {"word": w, "box": b, "confidence": round(c, 3)}
-                            for w, b, c in zip(ocr_words, ocr_boxes_list, p.ocr_result.confidences)
+                            for w, b, c in zip(ocr_words, ocr_boxes_list, p.ocr_result.confidences, strict=False)
                         ],
                         "image_width": iw,
                         "image_height": ih,

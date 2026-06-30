@@ -5,8 +5,8 @@ Composable, configurable pipeline where each step is optional.
 Users enable/disable steps and configure parameters at runtime.
 """
 
+from pipeline.base import BaseStep, PageResult, PipelineContext
 from pipeline.config import PipelineConfig
-from pipeline.base import PipelineContext, PageResult, BaseStep
 from pipeline.orchestrator import PipelineOrchestrator
 
 __all__ = [

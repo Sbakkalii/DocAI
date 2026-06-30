@@ -8,12 +8,11 @@ sums subtotals, and reconciles totals.
 
 import asyncio
 import json
-import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
+from pipeline.base import BaseStep, PipelineContext
 from pipeline.config import PipelineConfig
-from pipeline.base import BaseStep, PipelineContext, PageResult
 from pipeline.schemas import build_schema_for_document_type
 
 
@@ -42,7 +41,7 @@ class ReducePhaseStitchingStep(BaseStep):
             self.logger.warning("No pages to stitch")
             return ctx
 
-        page_extractions: List[Dict[str, Any]] = []
+        page_extractions: list[dict[str, Any]] = []
         for p in ctx.pages:
             if p.extracted_fields:
                 page_extractions.append({
@@ -84,7 +83,7 @@ class ReducePhaseStitchingStep(BaseStep):
         )
         return ctx
 
-    def _build_stitch_schema(self, page_extractions: List[dict]) -> dict:
+    def _build_stitch_schema(self, page_extractions: list[dict]) -> dict:
         merged_keys: dict = {}
         for pe in page_extractions:
             fields = pe.get("fields", {})
@@ -104,7 +103,7 @@ class ReducePhaseStitchingStep(BaseStep):
 
     async def _stitch_with_llm(
         self,
-        page_extractions: List[dict],
+        page_extractions: list[dict],
         doc_type: str,
         schema: dict,
     ) -> dict:
@@ -222,7 +221,7 @@ class ReducePhaseStitchingStep(BaseStep):
 
         return result
 
-    def _simple_merge(self, page_extractions: List[dict]) -> dict:
+    def _simple_merge(self, page_extractions: list[dict]) -> dict:
         merged = {}
         for pe in page_extractions:
             fields = pe.get("fields", {})
@@ -252,7 +251,7 @@ class ReducePhaseStitchingStep(BaseStep):
         return merged
 
     @staticmethod
-    def _headroom_compress(content: str) -> Optional[str]:
+    def _headroom_compress(content: str) -> str | None:
         """Compress content using headroom-ai if available."""
         try:
             from docai.headroom_utils import compress_content
@@ -260,7 +259,7 @@ class ReducePhaseStitchingStep(BaseStep):
         except ImportError:
             return None
 
-    def _parse_json(self, raw: str) -> Optional[dict]:
+    def _parse_json(self, raw: str) -> dict | None:
         try:
             return json.loads(raw)
         except json.JSONDecodeError:

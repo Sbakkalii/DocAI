@@ -12,11 +12,10 @@ import sqlite3
 import statistics
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
-
+from pipeline.config import PipelineConfig
 
 ANOMALY_DB = Path("output/anomaly_store.db")
 VAT_RATES_FR = {0.0, 5.5, 10.0, 20.0}
@@ -54,7 +53,7 @@ class AnomalyStep(BaseStep):
                 continue
 
             fields = page.extracted_fields
-            anomalies: List[Dict] = []
+            anomalies: list[dict] = []
 
             # 1. Duplicate invoice detection
             dup = self._check_duplicate(fields)
@@ -85,7 +84,7 @@ class AnomalyStep(BaseStep):
 
         return ctx
 
-    def _check_duplicate(self, fields: Dict) -> Optional[Dict]:
+    def _check_duplicate(self, fields: dict) -> dict | None:
         supplier = str(fields.get("SUPPLIER", "")).strip()
         total = self._parse_amount(fields.get("TOTAL_AMOUNT") or fields.get("TOTAL"))
         inv_date = self._parse_date(fields.get("INVOICE_DATE"))
@@ -110,7 +109,7 @@ class AnomalyStep(BaseStep):
             }
         return None
 
-    def _check_amount_anomaly(self, fields: Dict) -> Optional[Dict]:
+    def _check_amount_anomaly(self, fields: dict) -> dict | None:
         supplier = str(fields.get("SUPPLIER", "")).strip()
         total = self._parse_amount(fields.get("TOTAL_AMOUNT") or fields.get("TOTAL"))
 
@@ -142,7 +141,7 @@ class AnomalyStep(BaseStep):
             }
         return None
 
-    def _check_vat_rate(self, fields: Dict) -> Optional[Dict]:
+    def _check_vat_rate(self, fields: dict) -> dict | None:
         # Look for VAT rate in line items or TOTAL/TOTAL_AMOUNT calculation
         total = self._parse_amount(fields.get("TOTAL"))
         total_amount = self._parse_amount(fields.get("TOTAL_AMOUNT"))
@@ -161,7 +160,7 @@ class AnomalyStep(BaseStep):
             }
         return None
 
-    def _check_date_sanity(self, fields: Dict) -> Optional[Dict]:
+    def _check_date_sanity(self, fields: dict) -> dict | None:
         inv_date = self._parse_date(fields.get("INVOICE_DATE"))
 
         if inv_date:
@@ -175,7 +174,7 @@ class AnomalyStep(BaseStep):
 
         return None
 
-    def _persist_doc(self, session_id: str, fields: Dict):
+    def _persist_doc(self, session_id: str, fields: dict):
         supplier = str(fields.get("SUPPLIER", "")).strip()
         inv_number = str(fields.get("NUMBER", "")).strip()
         inv_date = self._parse_date(fields.get("INVOICE_DATE"))
@@ -200,7 +199,7 @@ class AnomalyStep(BaseStep):
             return 0.0
 
     @staticmethod
-    def _parse_date(value) -> Optional[Any]:
+    def _parse_date(value) -> Any | None:
         if not value:
             return None
         v = str(value).strip()

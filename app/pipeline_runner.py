@@ -2,23 +2,24 @@ import asyncio
 import logging
 import os
 import time
-from typing import Optional, Callable, Dict, Any, List, Union
+from collections.abc import Callable
+from typing import Any, Union
 
+from app.websocket_manager import ws_manager
 from pipeline import PipelineConfig, PipelineOrchestrator
 from pipeline.config import DOCUMENT_TYPE_FIELDS, DOCUMENT_TYPE_RECOMMENDED_MODEL
-from app.websocket_manager import ws_manager
 
 logger = logging.getLogger("app.runner")
 
-_active_sessions: Dict[str, "PipelineJob"] = {}
+_active_sessions: dict[str, "PipelineJob"] = {}
 
 ProgressCallback = Callable[[str, str, float, dict], None]
 
 # A prereq can be a single step name or a tuple of alternatives (any one suffices)
-Prereq = Union[str, tuple[str, ...]]
+Prereq = Union[str, tuple[str, ...]]  # noqa: UP007
 
 # Prerequisites for each step (step can run when all prereqs are met)
-STEP_PREREQS: Dict[str, list[Prereq]] = {
+STEP_PREREQS: dict[str, list[Prereq]] = {
     "ingestion": [],
     "document_classifier": ["ingestion"],
     "ocr": ["ingestion"],
@@ -47,7 +48,7 @@ STEP_PREREQS: Dict[str, list[Prereq]] = {
 }
 
 # Flatten prereqs for downstream map (include all alternatives)
-_downstream_map: Dict[str, set[str]] = {}
+_downstream_map: dict[str, set[str]] = {}
 for _step, _prereqs in STEP_PREREQS.items():
     for _prereq in _prereqs:
         if isinstance(_prereq, tuple):
@@ -127,11 +128,11 @@ class PipelineJob:
         self._ctx = None
         self._completed_steps: set[str] = set()
         self._step_map: dict[str, Any] = {}
-        self._run_task: Optional[asyncio.Task] = None
+        self._run_task: asyncio.Task | None = None
         self._start_total: float = 0.0
-        self._step_config_overrides: Dict[str, Any] = {}
-        self._corrections: Dict[str, Any] = {}
-        self._target_fields_override: Optional[list[str]] = None
+        self._step_config_overrides: dict[str, Any] = {}
+        self._corrections: dict[str, Any] = {}
+        self._target_fields_override: list[str] | None = None
 
     @property
     def elapsed(self) -> float:
@@ -172,7 +173,7 @@ class PipelineJob:
     def waiting_for_input(self) -> bool:
         return self.status == "running" and not self._continue_event.is_set() and not self._auto_run
 
-    def signal_continue(self, step_name: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
+    def signal_continue(self, step_name: str | None = None, config: dict[str, Any] | None = None):
         self._requested_step = step_name
         if config:
             self._step_config_overrides.update(config)
@@ -183,7 +184,7 @@ class PipelineJob:
         if enabled:
             self._continue_event.set()
 
-    def update_config(self, mode: str, target_fields: Optional[list[str]] = None, model: Optional[str] = None, vlm_model: Optional[str] = None, ocr_engine: Optional[str] = None):
+    def update_config(self, mode: str, target_fields: list[str] | None = None, model: str | None = None, vlm_model: str | None = None, ocr_engine: str | None = None):
         """Change the pipeline mode, target fields, LLM model, VLM model, or OCR engine after upload."""
         if mode != self.mode:
             new_config_fn = getattr(self.config.__class__, f'for_{mode}', None)
@@ -238,7 +239,7 @@ class PipelineJob:
             })
         )
 
-    def rerun_step(self, step_name: str, config: Optional[Dict[str, Any]] = None) -> bool:
+    def rerun_step(self, step_name: str, config: dict[str, Any] | None = None) -> bool:
         """Remove step and its downstream from completed, signal to re-run."""
         if step_name not in self._step_map:
             return False
@@ -313,7 +314,6 @@ class PipelineJob:
 
             # Retry transient failures with exponential backoff (3 attempts)
             max_retries = 3
-            last_error = None
             for attempt in range(max_retries):
                 try:
                     self._ctx = await asyncio.wait_for(
@@ -324,7 +324,6 @@ class PipelineJob:
                 except asyncio.TimeoutError:
                     raise
                 except Exception as e:
-                    last_error = e
                     if attempt < max_retries - 1:
                         delay = 2.0 * (2 ** attempt)
                         logger.warning(
@@ -551,8 +550,11 @@ class PipelineJob:
 
 def _build_result(ctx, total_time: float) -> dict:
     from pipeline.annotation_utils import (
-        find_annotation_file, load_ground_truth, match_predicted_fields,
-        build_page_fragments, annotations_to_boxes,
+        annotations_to_boxes,
+        build_page_fragments,
+        find_annotation_file,
+        load_ground_truth,
+        match_predicted_fields,
     )
 
     pages = []
@@ -578,7 +580,7 @@ def _build_result(ctx, total_time: float) -> dict:
             p["ocr_markdown"] = page.ocr_result.to_markdown()
             p["ocr_boxes"] = [
                 {"word": w, "box": b, "confidence": round(c, 3)}
-                for w, b, c in zip(page.ocr_result.words, page.ocr_result.boxes, page.ocr_result.confidences)
+                for w, b, c in zip(page.ocr_result.words, page.ocr_result.boxes, page.ocr_result.confidences, strict=False)
             ]
             p["image_width"] = page.ocr_result.image_width
             p["image_height"] = page.ocr_result.image_height
@@ -612,7 +614,7 @@ def _build_result(ctx, total_time: float) -> dict:
                     )
                     gt_annotations = annotations_to_boxes([
                         {"label": label, "text": word, "box": box, "confidence": 1.0, "source": "ground_truth"}
-                        for word, box, label in zip(gt.words, gt.boxes, gt.labels)
+                        for word, box, label in zip(gt.words, gt.boxes, gt.labels, strict=False)
                     ])
                 except Exception as e:
                     logger.warning(f"Failed to load ground truth from {tsv_file}: {e}")
@@ -680,8 +682,8 @@ async def start_pipeline(
     input_path: str,
     config_preset: str = "mixed",
     enable_all: bool = True,
-    step_overrides: Optional[dict] = None,
-    original_filename: Optional[str] = None,
+    step_overrides: dict | None = None,
+    original_filename: str | None = None,
 ) -> PipelineJob:
     if config_preset == "single_invoice":
         config = PipelineConfig.for_single_invoice()
@@ -711,7 +713,7 @@ async def start_pipeline(
     else:
         config = PipelineConfig.for_mixed_document()
         config_mode = "hybrid"
-    
+
 
     config.session_id = session_id
     config.original_filename = original_filename
@@ -744,7 +746,7 @@ async def start_pipeline(
     return job
 
 
-def get_job(session_id: str) -> Optional[PipelineJob]:
+def get_job(session_id: str) -> PipelineJob | None:
     return _active_sessions.get(session_id)
 
 
@@ -757,4 +759,5 @@ def _quick_page_count(filepath: str) -> int:
         doc.close()
         return count
     except Exception:
+        logger.debug(f"Failed quick page count for {filepath}, assuming 1 page")
         return 1

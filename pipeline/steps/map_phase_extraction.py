@@ -8,13 +8,11 @@ Groups contiguous pages of the same type. Uses semaphore for concurrency control
 import asyncio
 import hashlib
 import json
-import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.schemas import build_schema_for_document_type
 
 
@@ -133,6 +131,7 @@ class MapPhaseExtractionStep(BaseStep):
 
         try:
             import base64
+
             from ollama import AsyncClient
 
             with open(image_path, "rb") as f:
@@ -183,7 +182,7 @@ class MapPhaseExtractionStep(BaseStep):
         content = img_bytes + prompt.encode()
         return hashlib.md5(content).hexdigest()
 
-    def _check_cache(self, image_path: str, prompt: str) -> Optional[dict]:
+    def _check_cache(self, image_path: str, prompt: str) -> dict | None:
         try:
             cache_dir = Path("output/pipeline/.map_cache")
             cache_file = cache_dir / f"{self._cache_key(image_path, prompt)}.json"

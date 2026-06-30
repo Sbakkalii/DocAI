@@ -5,13 +5,10 @@ Tracks batch jobs, individual document status, throughput, and ETA.
 Also serves as the review queue store (documents flagged for human review).
 """
 
-import json
 import sqlite3
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 DB_PATH = Path("output/batch_store.db")
 
@@ -139,21 +136,21 @@ def update_doc_status(doc_id: str, status: str, session_id: str = None, error: s
     conn.close()
 
 
-def get_batch(batch_id: str) -> Optional[Dict]:
+def get_batch(batch_id: str) -> dict | None:
     conn = _get_db()
     row = conn.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
 
-def get_batch_docs(batch_id: str) -> List[Dict]:
+def get_batch_docs(batch_id: str) -> list[dict]:
     conn = _get_db()
     rows = conn.execute("SELECT * FROM batch_docs WHERE batch_id = ? ORDER BY created_at", (batch_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_next_queued_doc(priority: str = None) -> Optional[Dict]:
+def get_next_queued_doc(priority: str = None) -> dict | None:
     conn = _get_db()
     if priority == "manual":
         row = conn.execute(
@@ -165,7 +162,7 @@ def get_next_queued_doc(priority: str = None) -> Optional[Dict]:
     return dict(row) if row else None
 
 
-def get_batch_stats() -> Dict:
+def get_batch_stats() -> dict:
     conn = _get_db()
     total_batches = conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
     active = conn.execute("SELECT COUNT(*) FROM batches WHERE status IN ('queued', 'running')").fetchone()[0]
@@ -186,7 +183,7 @@ def get_batch_stats() -> Dict:
 
 # ── Review queue operations ──
 
-def get_review_queue(limit: int = 50) -> List[Dict]:
+def get_review_queue(limit: int = 50) -> list[dict]:
     conn = _get_db()
     rows = conn.execute(
         "SELECT * FROM batch_docs WHERE needs_review = 1 AND status = 'completed' ORDER BY confidence ASC LIMIT ?",

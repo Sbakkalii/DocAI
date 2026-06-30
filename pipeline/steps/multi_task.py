@@ -9,11 +9,10 @@ Expands extraction to:
 """
 
 import json
-import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class MultiTaskStep(BaseStep):
@@ -37,7 +36,7 @@ class MultiTaskStep(BaseStep):
         import ollama
         client = ollama.AsyncClient(host=self.config.multi_task.ollama_host)
 
-        results: Dict[str, Any] = {}
+        results: dict[str, Any] = {}
 
         for task in self.tasks:
             if task == "ner":
@@ -57,7 +56,7 @@ class MultiTaskStep(BaseStep):
     #  NER — Named Entity Recognition
     # ═══════════════════════════════════════════════════════
 
-    async def _extract_ner(self, client, ctx: PipelineContext) -> Dict:
+    async def _extract_ner(self, client, ctx: PipelineContext) -> dict:
         text = self._gather_text(ctx)
         if not text:
             return {"entities": []}
@@ -73,7 +72,7 @@ class MultiTaskStep(BaseStep):
 Document text:
 {text[:8000]}
 
-Return ONLY a JSON object.""" 
+Return ONLY a JSON object."""
 
         try:
             resp = await client.chat(model=self.model, messages=[{"role": "user", "content": prompt}],
@@ -87,7 +86,7 @@ Return ONLY a JSON object."""
     #  Summarization
     # ═══════════════════════════════════════════════════════
 
-    async def _extract_summary(self, client, ctx: PipelineContext) -> Dict:
+    async def _extract_summary(self, client, ctx: PipelineContext) -> dict:
         text = self._gather_text(ctx)
         if not text:
             return {"bullets": [], "paragraph": ""}
@@ -113,7 +112,7 @@ Return ONLY a JSON object."""
     #  Contract KIE — Key Information Extraction
     # ═══════════════════════════════════════════════════════
 
-    async def _extract_contract_kie(self, client, ctx: PipelineContext) -> Dict:
+    async def _extract_contract_kie(self, client, ctx: PipelineContext) -> dict:
         text = self._gather_text(ctx)
         if not text:
             return {"clauses": []}
@@ -144,7 +143,7 @@ Return ONLY a JSON object."""
     #  Clause Risk Scoring
     # ═══════════════════════════════════════════════════════
 
-    async def _score_clause_risks(self, client, ctx: PipelineContext) -> Dict:
+    async def _score_clause_risks(self, client, ctx: PipelineContext) -> dict:
         text = self._gather_text(ctx)
         if not text:
             return {"scores": []}

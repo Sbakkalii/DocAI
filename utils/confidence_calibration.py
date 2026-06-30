@@ -12,7 +12,6 @@ Default weights (when no calibration data exists):
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +20,9 @@ class ConfidenceCalibration:
     def __init__(self, store_path: str = ".cache/calibration/weights.json"):
         self.store_path = Path(store_path)
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        self._weights: Dict[str, float] = self._load()
+        self._weights: dict[str, float] = self._load()
 
-    def _load(self) -> Dict[str, float]:
+    def _load(self) -> dict[str, float]:
         if self.store_path.exists():
             try:
                 data = json.loads(self.store_path.read_text())
@@ -93,7 +92,7 @@ class ConfidenceCalibration:
         logger.info(f"Confidence calibration: updated weights from {len(records)} eval records, mean_acc={mean_acc:.3f}")
 
 
-_calibration: Optional[ConfidenceCalibration] = None
+_calibration: ConfidenceCalibration | None = None
 
 
 def get_calibration() -> ConfidenceCalibration:

@@ -9,9 +9,9 @@ Validates extracted invoice fields against business rules:
 - Value range sanity checks
 """
 
-import re
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+import re
+from typing import Any
 
 from utils.models import ValidationIssue, ValidationResult
 
@@ -27,7 +27,7 @@ class InvoiceValidator:
     confidence adjustments.
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self.tolerance = self.config.get("arithmetic_tolerance", 0.02)
         self.required_fields = self.config.get(
@@ -37,7 +37,7 @@ class InvoiceValidator:
 
     def validate(
         self,
-        extracted: Dict[str, Any],
+        extracted: dict[str, Any],
         ocr_text: str = "",
     ) -> ValidationResult:
         """Run all validation checks on extracted fields"""
@@ -64,8 +64,8 @@ class InvoiceValidator:
 
         stats = {
             "total_checks": 6,
-            "checks_passed": 6 - len(set(i.rule for i in issues)),
-            "checks_failed": len(set(i.rule for i in issues)),
+            "checks_passed": 6 - len({i.rule for i in issues}),
+            "checks_failed": len({i.rule for i in issues}),
         }
 
         return ValidationResult(
@@ -75,7 +75,7 @@ class InvoiceValidator:
             stats=stats,
         )
 
-    def _check_required_fields(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_required_fields(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """Ensure all required fields are present"""
         issues = []
         missing = [f for f in self.required_fields if f not in extracted or extracted[f] is None]
@@ -88,7 +88,7 @@ class InvoiceValidator:
             ))
         return issues
 
-    def _check_total_consistency(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_total_consistency(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """TOTAL should approximately equal sum of LINE/SUB_TOTAL"""
         issues = []
 
@@ -101,10 +101,7 @@ class InvoiceValidator:
 
         subtotals = []
         for item in line_subtotals:
-            if isinstance(item, dict):
-                val = item.get("sub_total", item.get("value"))
-            else:
-                val = item
+            val = item.get("sub_total", item.get("value")) if isinstance(item, dict) else item
             parsed = self._parse_monetary(val)
             if parsed is not None:
                 subtotals.append(parsed)
@@ -126,10 +123,9 @@ class InvoiceValidator:
                         },
                     ))
 
-        if total is not None and total_amount is not None:
-            if total > 0 and total_amount > 0:
-                relative_diff = abs(total - total_amount) / max(total, total_amount)
-                if relative_diff > self.tolerance:
+        if total is not None and total_amount is not None and total > 0 and total_amount > 0:
+            relative_diff = abs(total - total_amount) / max(total, total_amount)
+            if relative_diff > self.tolerance:
                     issues.append(ValidationIssue(
                         rule="total_amount_consistency",
                         severity="warning",
@@ -140,7 +136,7 @@ class InvoiceValidator:
 
         return issues
 
-    def _check_line_item_arithmetic(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_line_item_arithmetic(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """Each LINE/SUB_TOTAL should equal LINE/QUANTITY * LINE/UNIT_PRICE"""
         issues = []
 
@@ -191,7 +187,7 @@ class InvoiceValidator:
 
         return issues
 
-    def _check_date_format(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_date_format(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """Check that INVOICE_DATE matches expected patterns"""
         issues = []
         date_val = extracted.get("INVOICE_DATE")
@@ -221,7 +217,7 @@ class InvoiceValidator:
 
         return issues
 
-    def _check_currency_consistency(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_currency_consistency(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """Check that currency symbols/patterns are consistent across monetary fields"""
         issues = []
 
@@ -233,10 +229,7 @@ class InvoiceValidator:
             if val is None:
                 continue
 
-            if isinstance(val, list):
-                values = val
-            else:
-                values = [val]
+            values = val if isinstance(val, list) else [val]
 
             for v in values:
                 if isinstance(v, dict):
@@ -261,7 +254,7 @@ class InvoiceValidator:
 
         return issues
 
-    def _check_value_ranges(self, extracted: Dict[str, Any]) -> List[ValidationIssue]:
+    def _check_value_ranges(self, extracted: dict[str, Any]) -> list[ValidationIssue]:
         """Sanity checks on value ranges"""
         issues = []
 
@@ -286,7 +279,7 @@ class InvoiceValidator:
 
         line_items = extracted.get("LINE/QUANTITY", [])
         if isinstance(line_items, list):
-            for i, item in enumerate(line_items):
+            for i, _item in enumerate(line_items):
                 qty = self._parse_numeric(self._get_item_value(line_items, i))
                 if qty is not None and qty < 0:
                     issues.append(ValidationIssue(
@@ -299,7 +292,7 @@ class InvoiceValidator:
 
         return issues
 
-    def _check_ocr_evidence(self, extracted: Dict[str, Any], ocr_text: str) -> List[ValidationIssue]:
+    def _check_ocr_evidence(self, extracted: dict[str, Any], ocr_text: str) -> list[ValidationIssue]:
         """Check that extracted values have supporting evidence in OCR text"""
         issues = []
 
@@ -338,7 +331,7 @@ class InvoiceValidator:
         return issues
 
     @staticmethod
-    def _parse_monetary(value) -> Optional[float]:
+    def _parse_monetary(value) -> float | None:
         """Parse a monetary value, handling comma/dot decimal separators"""
         if value is None:
             return None
@@ -367,7 +360,7 @@ class InvoiceValidator:
             return None
 
     @staticmethod
-    def _parse_numeric(value) -> Optional[float]:
+    def _parse_numeric(value) -> float | None:
         """Parse a numeric value"""
         if value is None:
             return None

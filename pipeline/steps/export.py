@@ -9,18 +9,16 @@ Supports:
 
 import csv
 import io
-import json
-import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from xml.etree.ElementTree import Element, SubElement, tostring
+from typing import Any
 from xml.dom import minidom
+from xml.etree.ElementTree import Element, SubElement, tostring
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class ExportStep(BaseStep):
@@ -41,7 +39,7 @@ class ExportStep(BaseStep):
         if isinstance(formats, str):
             formats = [formats]
 
-        exported: Dict[str, str] = {}
+        exported: dict[str, str] = {}
 
         for fmt in formats:
             if fmt not in self.SUPPORTED_FORMATS:
@@ -77,7 +75,7 @@ class ExportStep(BaseStep):
     # ═══════════════════════════════════════════════════════════
 
     def _export_ubl_xml(self, ctx: PipelineContext) -> str:
-        all_fields: Dict[str, Any] = {}
+        all_fields: dict[str, Any] = {}
         for page in ctx.pages:
             if page.extracted_fields:
                 all_fields.update(page.extracted_fields)
@@ -141,11 +139,14 @@ class ExportStep(BaseStep):
                     item = SubElement(line, f"{{{ns['cac']}}}Item")
                     SubElement(item, f"{{{ns['cbc']}}}Name").text = desc
                 qty = self._li_str(li, "quantity")
-                if qty: SubElement(line, f"{{{ns['cbc']}}}InvoicedQuantity", {"unitCode": "C62"}).text = self._num(qty)
+                if qty:
+                    SubElement(line, f"{{{ns['cbc']}}}InvoicedQuantity", {"unitCode": "C62"}).text = self._num(qty)
                 price = self._li_str(li, "unit_price")
-                if price: SubElement(line, f"{{{ns['cbc']}}}PriceAmount", {"currencyID": currency_code}).text = self._num(price)
+                if price:
+                    SubElement(line, f"{{{ns['cbc']}}}PriceAmount", {"currencyID": currency_code}).text = self._num(price)
                 sub = self._li_str(li, "sub_total")
-                if sub: SubElement(line, f"{{{ns['cbc']}}}LineExtensionAmount", {"currencyID": currency_code}).text = self._num(sub)
+                if sub:
+                    SubElement(line, f"{{{ns['cbc']}}}LineExtensionAmount", {"currencyID": currency_code}).text = self._num(sub)
 
         anomaly_flags = self._collect_anomaly_flags(ctx)
         if anomaly_flags:
@@ -160,7 +161,7 @@ class ExportStep(BaseStep):
     # ═══════════════════════════════════════════════════════════
 
     def _export_edi810(self, ctx: PipelineContext) -> str:
-        all_fields: Dict[str, Any] = {}
+        all_fields: dict[str, Any] = {}
         for page in ctx.pages:
             if page.extracted_fields:
                 all_fields.update(page.extracted_fields)
@@ -169,20 +170,20 @@ class ExportStep(BaseStep):
 
         segments = []
         # ISA header
-        segments.append("ISA*00*          *00*          *ZZ*SENDER         *ZZ*RECEIVER       *{0}*{1}*U*00401*000000001*0*P*>~".format(
+        segments.append("ISA*00*          *00*          *ZZ*SENDER         *ZZ*RECEIVER       *{}*{}*U*00401*000000001*0*P*>~".format(
             datetime.now().strftime("%y%m%d"),
             datetime.now().strftime("%H%M"),
         ))
 
         # GS header
-        segments.append("GS*IN*SENDER*RECEIVER*{0}*{1}*1*X*004010~".format(
+        segments.append("GS*IN*SENDER*RECEIVER*{}*{}*1*X*004010~".format(
             datetime.now().strftime("%Y%m%d"),
             datetime.now().strftime("%H%M"),
         ))
 
         # ST — transaction set header
         inv_id = self._str(all_fields, "NUMBER") or f"DOC-{uuid.uuid4().hex[:8].upper()}"
-        segments.append(f"ST*810*0001~")
+        segments.append("ST*810*0001~")
 
         # BIG — beginning segment for invoice
         issue_date = self._format_date(self._str(all_fields, "INVOICE_DATE"), "%Y%m%d") or datetime.now().strftime("%Y%m%d")
@@ -225,7 +226,7 @@ class ExportStep(BaseStep):
     # ═══════════════════════════════════════════════════════════
 
     def _export_csv(self, ctx: PipelineContext) -> str:
-        all_fields: Dict[str, Any] = {}
+        all_fields: dict[str, Any] = {}
         for page in ctx.pages:
             if page.extracted_fields:
                 all_fields.update(page.extracted_fields)
@@ -238,14 +239,14 @@ class ExportStep(BaseStep):
         writer = csv.writer(output)
 
         # Map pipeline fields → ERP columns using field_map.yaml
-        mapped: Dict[str, str] = {}
+        mapped: dict[str, str] = {}
         for pipeline_key, erp_col in field_map.items():
             val = self._str(all_fields, pipeline_key)
             if val:
                 mapped[erp_col] = val
 
         # Also include raw fields that aren't mapped
-        for key, val in all_fields.items():
+        for key, _val in all_fields.items():
             if key == "line_items" or key.startswith("_") or key in mapped or key.startswith("LINE/"):
                 continue
             if key not in field_map:
@@ -258,7 +259,7 @@ class ExportStep(BaseStep):
 
         return output.getvalue()
 
-    def _load_field_map(self) -> Dict[str, str]:
+    def _load_field_map(self) -> dict[str, str]:
         """Load field_map.yaml if it exists, else use defaults."""
         import yaml
         map_path = Path("data/field_map.yaml")
@@ -284,7 +285,7 @@ class ExportStep(BaseStep):
     #  Helpers
     # ═══════════════════════════════════════════════════════════
 
-    def _str(self, fields: Dict, key: str) -> Optional[str]:
+    def _str(self, fields: dict, key: str) -> str | None:
         val = fields.get(key)
         if val is None or val == "null":
             return None
@@ -298,22 +299,25 @@ class ExportStep(BaseStep):
         v = str(value).replace(" ", "").replace(",", ".")
         return f"{float(v):.2f}" if re.match(r'^[\d.,]+$', v) else "0.00"
 
-    def _currency_from_fields(self, fields: Dict) -> str:
+    def _currency_from_fields(self, fields: dict) -> str:
         for k in ("TOTAL_AMOUNT", "TOTAL"):
             val = self._str(fields, k)
-            if val and "€" in val: return "EUR"
-            if val and "$" in val: return "USD"
-            if val and "£" in val: return "GBP"
+            if val and "€" in val:
+                return "EUR"
+            if val and "$" in val:
+                return "USD"
+            if val and "£" in val:
+                return "GBP"
         return "EUR"
 
-    def _resolve_currency(self, ctx: PipelineContext, fields: Dict) -> str:
+    def _resolve_currency(self, ctx: PipelineContext, fields: dict) -> str:
         for page in ctx.pages:
             profile = page.metadata.get("vendor_profile", {})
             if profile.get("currency"):
                 return profile["currency"]
         return self._currency_from_fields(fields)
 
-    def _get_vendor_id(self, ctx: PipelineContext) -> Optional[str]:
+    def _get_vendor_id(self, ctx: PipelineContext) -> str | None:
         for page in ctx.pages:
             vid = page.metadata.get("vendor_id")
             if vid:
@@ -323,7 +327,7 @@ class ExportStep(BaseStep):
                 return str(match["id"])
         return None
 
-    def _collect_anomaly_flags(self, ctx: PipelineContext) -> List[str]:
+    def _collect_anomaly_flags(self, ctx: PipelineContext) -> list[str]:
         flags = []
         for page in ctx.pages:
             for anomaly in page.metadata.get("anomalies", []):
@@ -337,7 +341,7 @@ class ExportStep(BaseStep):
         return flags
 
     @staticmethod
-    def _format_date(value: str, fmt: str = "%Y-%m-%d") -> Optional[str]:
+    def _format_date(value: str, fmt: str = "%Y-%m-%d") -> str | None:
         if not value:
             return None
         from datetime import datetime as dt
@@ -348,13 +352,13 @@ class ExportStep(BaseStep):
                 continue
         return value.strip()
 
-    def _li_str(self, li: Dict, key: str) -> Optional[str]:
+    def _li_str(self, li: dict, key: str) -> str | None:
         val = li.get(key)
         if val is None:
             return None
         return str(val).strip()
 
-    def _maybe_line_lists(self, fields: Dict):
+    def _maybe_line_lists(self, fields: dict):
         """If LINE/* fields are flat lists (from LLM extraction), reconstruct line_items."""
         if "line_items" in fields and fields["line_items"]:
             return

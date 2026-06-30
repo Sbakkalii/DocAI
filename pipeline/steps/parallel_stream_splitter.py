@@ -6,13 +6,10 @@ Manages memory by rendering on demand and storing to /tmp/cache.
 """
 
 import asyncio
-import logging
-import time
 from pathlib import Path
-from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class ParallelStreamSplitterStep(BaseStep):
@@ -66,7 +63,7 @@ class ParallelStreamSplitterStep(BaseStep):
                     self.logger.warning("PyMuPDF not available, using existing image_path")
 
         tasks = []
-        for i, page in enumerate(ctx.pages):
+        for _i, page in enumerate(ctx.pages):
             tasks.append(render_page(page, page.page_number))
 
         await asyncio.gather(*tasks)

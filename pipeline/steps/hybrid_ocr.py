@@ -3,12 +3,10 @@ import base64
 import hashlib
 import re
 from pathlib import Path
-from typing import Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 from pipeline.steps.ocr import OCRResult
-
 
 VLM_SYSTEM_PROMPT = """You are a precise OCR engine for invoices.
 Extract ALL visible text from the image exactly as written.
@@ -123,7 +121,7 @@ class HybridOCRStep(BaseStep):
             )
         return ctx
 
-    async def _run_ocr(self, image_path: str) -> Optional[OCRResult]:
+    async def _run_ocr(self, image_path: str) -> OCRResult | None:
         loop = asyncio.get_event_loop()
         if self.ocr_engine == "tesseract":
             result = await loop.run_in_executor(None, self._run_tesseract, image_path)
@@ -137,10 +135,10 @@ class HybridOCRStep(BaseStep):
                     result = OCRResult(corrected_words, result.boxes, result.confidences, result.image_width, result.image_height)
         return result
 
-    def _run_rapidocr(self, image_path: str) -> Optional[OCRResult]:
+    def _run_rapidocr(self, image_path: str) -> OCRResult | None:
         try:
-            from rapidocr_onnxruntime import RapidOCR
             from PIL import Image
+            from rapidocr_onnxruntime import RapidOCR
 
             img = Image.open(image_path).convert("RGB")
             width, height = img.size
@@ -168,7 +166,7 @@ class HybridOCRStep(BaseStep):
             self.logger.error("RapidOCR not installed. pip install rapidocr_onnxruntime")
             return None
 
-    def _run_tesseract(self, image_path: str) -> Optional[OCRResult]:
+    def _run_tesseract(self, image_path: str) -> OCRResult | None:
         try:
             import pytesseract
             from PIL import Image
@@ -194,7 +192,7 @@ class HybridOCRStep(BaseStep):
             self.logger.error("Tesseract not installed. pip install pytesseract")
             return None
 
-    async def _run_vlm(self, image_path: str) -> Optional[str]:
+    async def _run_vlm(self, image_path: str) -> str | None:
         try:
             from utils.cache_manager import get_shared_cache
             cache = get_shared_cache()
@@ -296,7 +294,7 @@ class HybridOCRStep(BaseStep):
         # Use VLM markdown for structure, but append missing OCR content
         vlm_md = vlm_text
         ocr_text = ocr_result.to_text()
-        
+
         # Extract key fields from OCR that VLM might have missed
         missing_fields = self._extract_missing_fields(vlm_md, ocr_text)
         if missing_fields:
@@ -312,9 +310,9 @@ class HybridOCRStep(BaseStep):
     def _extract_missing_fields(vlm_md: str, ocr_text: str) -> str:
         """Extract key fields from OCR text that VLM markdown might have missed."""
         import re
-        
+
         missing = []
-        
+
         # Look for invoice number patterns (FA12/2018/078532, INV-123, etc.)
         inv_patterns = [
             r'\b(FA\d{2}/\d{4}/\d+)\b',  # FA12/2018/078532
@@ -326,7 +324,7 @@ class HybridOCRStep(BaseStep):
             for match in matches:
                 if match not in vlm_md:
                     missing.append(f"- Invoice Number: {match}")
-        
+
         # Look for reference/PO numbers
         ref_patterns = [
             r'\b(BC\d+)\b',  # BC03840
@@ -338,7 +336,7 @@ class HybridOCRStep(BaseStep):
             for match in matches:
                 if match not in vlm_md:
                     missing.append(f"- Reference: {match}")
-        
+
         return "\n".join(missing) if missing else ""
 
     @staticmethod
@@ -356,17 +354,17 @@ class HybridOCRStep(BaseStep):
         """Align VLM tokens with OCR words, preserving OCR content VLM missed."""
         n_ocr = len(ocr_words)
         n_vlm = len(vlm_tokens)
-        
+
         # If VLM is significantly shorter (>20% missing), use OCR words directly
         # to avoid losing content like invoice numbers that VLM missed
         if n_vlm < n_ocr * 0.8:
             return list(ocr_words), list(confs)
-        
+
         # Use OCR words as base, substitute with VLM tokens where position matches
         merged = []
         merged_confs = []
         vlm_idx = 0
-        
+
         for i, ocr_word in enumerate(ocr_words):
             # Try to match VLM token at similar position
             if vlm_idx < n_vlm:
@@ -386,13 +384,13 @@ class HybridOCRStep(BaseStep):
                 # VLM exhausted, keep remaining OCR words
                 merged.append(ocr_word)
                 merged_confs.append(confs[i] if i < len(confs) else 0.5)
-        
+
         # Append any remaining VLM tokens (if VLM had extra content)
         while vlm_idx < n_vlm:
             merged.append(vlm_tokens[vlm_idx])
             merged_confs.append(0.95)
             vlm_idx += 1
-        
+
         return merged, merged_confs
 
     @staticmethod

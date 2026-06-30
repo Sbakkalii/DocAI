@@ -23,10 +23,10 @@ import json
 import re
 import unicodedata
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
+from pipeline.config import PipelineConfig
 
 
 class ConfidenceStep(BaseStep):
@@ -91,10 +91,7 @@ class ConfidenceStep(BaseStep):
 
             is_vlm = bool(page.metadata.get("e2e_used"))
 
-            if is_vlm:
-                field_scores = self._score_vlm(page)
-            else:
-                field_scores = self._score_ocr(page)
+            field_scores = self._score_vlm(page) if is_vlm else self._score_ocr(page)
 
             populated_scores = [
                 s["confidence"] for s in field_scores.values()
@@ -152,10 +149,10 @@ class ConfidenceStep(BaseStep):
 
                 try:
                     import ollama
+
                     from pipeline.schemas import build_schema_for_document_type
 
                     host = ctx.config.end_to_end_vlm.ollama_host
-                    model = ctx.config.end_to_end_vlm.model
                     client = ollama.AsyncClient(host=host)
 
                     doc_type = page.metadata.get("vlm_schema_type", "invoice")
@@ -257,10 +254,10 @@ class ConfidenceStep(BaseStep):
             self.logger.warning(f"Re-extraction failed: {e}")
         return None
 
-    def _score_vlm(self, page) -> Dict[str, Dict[str, Any]]:
-        field_scores: Dict[str, Dict[str, Any]] = {}
+    def _score_vlm(self, page) -> dict[str, dict[str, Any]]:
+        field_scores: dict[str, dict[str, Any]] = {}
 
-        issues_by_field: Dict[str, list] = {}
+        issues_by_field: dict[str, list] = {}
         validation = page.validation_result
         if validation and isinstance(validation, dict):
             for issue in validation.get("issues", []):
@@ -307,7 +304,7 @@ class ConfidenceStep(BaseStep):
 
         return field_scores
 
-    def _score_line_items(self, items, issues_by_field) -> Dict:
+    def _score_line_items(self, items, issues_by_field) -> dict:
         if not items or not isinstance(items, list):
             return self._empty_score(is_vlm=True)
 
@@ -339,7 +336,7 @@ class ConfidenceStep(BaseStep):
             },
         }
 
-    def _score_ocr(self, page) -> Dict[str, Dict[str, Any]]:
+    def _score_ocr(self, page) -> dict[str, dict[str, Any]]:
         ocr_words = []
         ocr_confs = []
         if page.ocr_result:
@@ -350,7 +347,7 @@ class ConfidenceStep(BaseStep):
             ocr_words = vlm_text.split()
             ocr_confs = [0.7] * len(ocr_words)
 
-        field_scores: Dict[str, Dict[str, Any]] = {}
+        field_scores: dict[str, dict[str, Any]] = {}
 
         for field_name, value in page.extracted_fields.items():
             val_str = str(value) if value and value != "null" else ""
@@ -387,8 +384,8 @@ class ConfidenceStep(BaseStep):
         if not val:
             return 0.0
         val_tokens = set(val.split())
-        matching_confs: List[float] = []
-        for word, conf in zip(ocr_words, ocr_confs):
+        matching_confs: list[float] = []
+        for word, conf in zip(ocr_words, ocr_confs, strict=False):
             wl = ConfidenceStep._ocr_norm(word)
             if wl and (wl in val or any(t in wl or wl in t for t in val_tokens)):
                 matching_confs.append(conf)
@@ -415,7 +412,7 @@ class ConfidenceStep(BaseStep):
             return 0.0
         return round(2 * prec * rec / (prec + rec), 3)
 
-    def _empty_score(self, is_vlm: bool = False) -> Dict:
+    def _empty_score(self, is_vlm: bool = False) -> dict:
         if is_vlm:
             return {
                 "confidence": 0.0, "level": "low", "needs_review": True,

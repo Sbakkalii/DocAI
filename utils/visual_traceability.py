@@ -7,10 +7,10 @@ Supports validation-aware annotations: green boxes for validated fields,
 red for failed validation, yellow for warnings.
 """
 
-import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
+
 from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ VALIDATION_COLORS = {
 
 def draw_field_boxes(
     image_path: str,
-    knowledge_graph: Dict[str, Any],
+    knowledge_graph: dict[str, Any],
     output_path: str = None,
     box_width: int = 2,
     font_size: int = 14,
@@ -65,7 +65,7 @@ def draw_field_boxes(
 
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-    except (IOError, OSError):
+    except OSError:
         font = ImageFont.load_default()
 
     field_traces = knowledge_graph.get("field_traces", {})
@@ -95,8 +95,8 @@ def draw_field_boxes(
 
 def draw_validation_aware_boxes(
     image_path: str,
-    knowledge_graph: Dict[str, Any],
-    validation_result: Dict[str, Any] = None,
+    knowledge_graph: dict[str, Any],
+    validation_result: dict[str, Any] = None,
     output_path: str = None,
     box_width: int = 3,
     font_size: int = 14,
@@ -125,7 +125,7 @@ def draw_validation_aware_boxes(
 
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-    except (IOError, OSError):
+    except OSError:
         font = ImageFont.load_default()
 
     field_traces = knowledge_graph.get("field_traces", {})
@@ -183,9 +183,9 @@ def draw_validation_aware_boxes(
 
 
 def generate_traceability_report(
-    knowledge_graph: Dict[str, Any],
+    knowledge_graph: dict[str, Any],
     output_path: str,
-    validation_result: Dict[str, Any] = None,
+    validation_result: dict[str, Any] = None,
 ):
     """Generate a human-readable traceability report with validation info"""
     field_traces = knowledge_graph.get("field_traces", {})

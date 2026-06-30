@@ -6,14 +6,9 @@ Optionally applies LLM post-correction to fix spacing artifacts.
 """
 
 import asyncio
-import re
-import time
-from pathlib import Path
-from typing import Any, List, Optional
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
-
+from pipeline.config import PipelineConfig
 
 POST_CORRECT_PROMPT = """Fix spacing and formatting issues in this OCR text while preserving ALL content, numbers, and layout.
 Rules:
@@ -41,7 +36,7 @@ class OCRResult:
 
     def to_text_with_layout(self) -> str:
         lines = []
-        for word, box in zip(self.words, self.boxes):
+        for word, box in zip(self.words, self.boxes, strict=False):
             lines.append(f"[{box[0]},{box[1]},{box[2]},{box[3]}] {word}")
         return "\n".join(lines)
 
@@ -121,7 +116,7 @@ class OCRStep(BaseStep):
         else:
             return await loop.run_in_executor(None, self._run_tesseract, image_path)
 
-    async def _post_correct(self, text: str) -> Optional[str]:
+    async def _post_correct(self, text: str) -> str | None:
         try:
             from ollama import AsyncClient
             client = AsyncClient(host=self.config.ocr.ollama_host)
@@ -147,8 +142,8 @@ class OCRStep(BaseStep):
     def _run_rapidocr(self, image_path: str) -> OCRResult:
         """Run RapidOCR"""
         try:
-            from rapidocr_onnxruntime import RapidOCR
             from PIL import Image
+            from rapidocr_onnxruntime import RapidOCR
 
             img = Image.open(image_path).convert("RGB")
             width, height = img.size

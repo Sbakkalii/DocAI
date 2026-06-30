@@ -6,12 +6,9 @@ Retrieved via embedding similarity to augment few-shot prompts with domain rules
 No fine-tuning required.
 """
 
-import json
 import logging
-import os
 import time
-from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 import numpy as np
 
@@ -28,12 +25,12 @@ class FieldRulesStore:
     Retrieved via cosine similarity to augment few-shot prompts.
     """
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
-        self.rules: List[FieldRule] = []
-        self.templates: List[TemplateHint] = []
-        self._rule_embeddings: Dict[int, np.ndarray] = {}
-        self._template_embeddings: Dict[int, np.ndarray] = {}
+        self.rules: list[FieldRule] = []
+        self.templates: list[TemplateHint] = []
+        self._rule_embeddings: dict[int, np.ndarray] = {}
+        self._template_embeddings: dict[int, np.ndarray] = {}
         self._embedding_model = None
         self._embedding_tokenizer = None
         self.cache_manager = self.config.get("cache_manager")
@@ -461,7 +458,7 @@ class FieldRulesStore:
         self,
         query_text: str,
         k: int = 5,
-    ) -> List[FieldRule]:
+    ) -> list[FieldRule]:
         """
         Retrieve the k most relevant field rules for a given invoice.
 
@@ -499,7 +496,7 @@ class FieldRulesStore:
         self,
         query_text: str,
         k: int = 2,
-    ) -> List[TemplateHint]:
+    ) -> list[TemplateHint]:
         """Retrieve the k most relevant template hints"""
         if not self.templates:
             self.build_default_templates()
@@ -530,7 +527,7 @@ class FieldRulesStore:
 
     def _retrieve_by_embedding(
         self, query_text: str, k: int
-    ) -> List[FieldRule]:
+    ) -> list[FieldRule]:
         query_emb = self._embedding_model.encode(f"query: {query_text}")
         scored = []
         for i, rule in enumerate(self.rules):
@@ -542,7 +539,7 @@ class FieldRulesStore:
 
     def _retrieve_template_by_embedding(
         self, query_text: str, k: int
-    ) -> List[TemplateHint]:
+    ) -> list[TemplateHint]:
         query_emb = self._embedding_model.encode(f"query: {query_text}")
         scored = []
         for i, template in enumerate(self.templates):
@@ -554,7 +551,7 @@ class FieldRulesStore:
 
     def _retrieve_by_keywords(
         self, query_text: str, k: int
-    ) -> List[FieldRule]:
+    ) -> list[FieldRule]:
         query_lower = query_text.lower()
         scored = []
         for rule in self.rules:
@@ -569,7 +566,7 @@ class FieldRulesStore:
 
     def _retrieve_template_by_keywords(
         self, query_text: str, k: int
-    ) -> List[TemplateHint]:
+    ) -> list[TemplateHint]:
         query_lower = query_text.lower()
         scored = []
         for template in self.templates:
@@ -592,7 +589,7 @@ class FieldRulesStore:
             return 0.0
         return float(np.dot(a, b) / (norm_a * norm_b))
 
-    def format_rules_for_prompt(self, rules: List[FieldRule], locale: str = "en") -> str:
+    def format_rules_for_prompt(self, rules: list[FieldRule], locale: str = "en") -> str:
         """Format retrieved rules as a text block for the prompt"""
         if not rules:
             return ""
@@ -606,7 +603,7 @@ class FieldRulesStore:
                 parts.append(f"  Layout: {'; '.join(rule.layout_hints)}")
         return "\n".join(parts)
 
-    def format_templates_for_prompt(self, templates: List[TemplateHint], locale: str = "en") -> str:
+    def format_templates_for_prompt(self, templates: list[TemplateHint], locale: str = "en") -> str:
         """Format retrieved templates as a text block for the prompt"""
         if not templates:
             return ""

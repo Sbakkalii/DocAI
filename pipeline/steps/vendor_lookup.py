@@ -11,15 +11,15 @@ Runs BEFORE validation to enrich the pipeline context with:
 Uses fuzzy string matching (rapidfuzz token_sort_ratio) against a local SQLite registry.
 """
 
+import contextlib
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from rapidfuzz import fuzz
 
-from pipeline.config import PipelineConfig
 from pipeline.base import BaseStep, PipelineContext
-
+from pipeline.config import PipelineConfig
 
 DB_PATH = Path("data/vendors.db")
 
@@ -35,7 +35,7 @@ class VendorLookupStep(BaseStep):
         self.fuzzy_threshold = config.vendor_lookup.fuzzy_threshold
 
     async def execute(self, ctx: PipelineContext) -> PipelineContext:
-        vendor_profiles: Dict[str, Any] = {}
+        vendor_profiles: dict[str, Any] = {}
 
         for page in ctx.pages:
             if not page.extracted_fields:
@@ -46,7 +46,7 @@ class VendorLookupStep(BaseStep):
                 continue
 
             match = self._lookup_supplier(supplier)
-            anomalies: List[Dict] = []
+            anomalies: list[dict] = []
 
             if match:
                 page.metadata["vendor_match"] = match
@@ -114,9 +114,9 @@ class VendorLookupStep(BaseStep):
 
         return ctx
 
-    def _build_vendor_profile(self, match: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_vendor_profile(self, match: dict[str, Any]) -> dict[str, Any]:
         """Extract a vendor profile from the registry match for validation context."""
-        profile: Dict[str, Any] = {}
+        profile: dict[str, Any] = {}
 
         vat_number = match.get("vat_number") or ""
         if vat_number:
@@ -124,10 +124,8 @@ class VendorLookupStep(BaseStep):
 
         expected_vat_rate = match.get("vat_rate") or match.get("expected_vat_rate")
         if expected_vat_rate:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 profile["expected_vat_rate"] = float(expected_vat_rate)
-            except (ValueError, TypeError):
-                pass
 
         currency = match.get("currency")
         if currency:
@@ -147,7 +145,7 @@ class VendorLookupStep(BaseStep):
 
         return profile
 
-    def _lookup_supplier(self, supplier: str) -> Optional[Dict[str, Any]]:
+    def _lookup_supplier(self, supplier: str) -> dict[str, Any] | None:
         if not DB_PATH.exists():
             return None
 

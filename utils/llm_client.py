@@ -1,13 +1,13 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict
+from typing import Any
 
 
 class LLMClient:
     """Unified LLM client supporting Gemini, vLLM, and Ollama backends"""
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.provider = config.get('llm_provider', 'ollama').lower()
         self.logger = logging.getLogger("llm_client")
         self.max_retries = config.get('max_retries', 3)
