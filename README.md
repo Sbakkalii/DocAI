@@ -3,8 +3,25 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Local AI](https://img.shields.io/badge/AI-Local%20LLM-green)
+![CI](https://github.com/Sbakkalii/DocAI/actions/workflows/ci.yml/badge.svg)
 
 A modular, local-first document intelligence pipeline for extracting structured data from invoices and business documents. Runs entirely with open-source LLMs — no API keys, no cloud dependency, no data leaving your machine.
+
+## Demo
+
+*Video walkthrough coming soon. In the meantime:*
+
+```bash
+# 1. Start the app
+docker compose up -d
+
+# 2. Open http://localhost:8000
+# 3. Upload an invoice (PDF / image)
+# 4. Watch the VLM pipeline extract fields in real time
+# 5. Review, validate and export (UBL XML, EDI 810, CSV)
+```
+
+**Highlights**: dual-track VLM extraction, agentic retry on low confidence, RAG-augmented fallback, QA chatbot, batch evaluation against ground truth, Pydantic schema injection, multi-model ensemble.
 
 ## Quick Start (Docker)
 

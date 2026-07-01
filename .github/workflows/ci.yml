@@ -29,7 +29,6 @@ jobs:
       - run: pip install -e ".[dev,ocr,embeddings]"
         continue-on-error: true
       - run: mypy app/ pipeline/ docai/ utils/ --ignore-missing-imports
-        continue-on-error: true
 
   test:
     runs-on: ubuntu-latest
@@ -41,4 +40,3 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - run: pytest tests/ -v --tb=short
-        continue-on-error: true
